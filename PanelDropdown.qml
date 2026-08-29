@@ -36,11 +36,19 @@ Item {
   onOwnerOpenChanged: if (!ownerOpen) menu.close()
   onVisibleChanged: if (!visible) menu.close()
 
-  function open() { menu.open() }
+  // The position is computed when the menu opens, not bound: mapToItem does
+  // not re-evaluate when an ancestor scrolls, so a bound position would be
+  // the one the trigger had before the pane was scrolled.
+  function open() {
+    var place = root.menuPosition()
+    menu.x = place.x
+    menu.y = place.y
+    menu.open()
+  }
   function close() { menu.close() }
   function toggle() {
     if (menu.opened) menu.close()
-    else menu.open()
+    else root.open()
   }
 
   function valueOf(option) {
@@ -152,9 +160,6 @@ Item {
     // An Item popup stays inside the layer-shell surface; a window popup
     // would be a second Wayland surface the compositor never focuses.
     popupType: Popup.Item
-    readonly property point place: root.menuPosition()
-    x: place.x
-    y: place.y
     width: trigger.width
     height: Math.min(root.options.length, root.menuRowsShown) * root.menuRowHeight
       + topPadding + bottomPadding

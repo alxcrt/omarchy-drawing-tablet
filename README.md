@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="preview.png" alt="The Drawing Tablet panel open in the Omarchy bar" width="440">
+  <img src="preview.jpg" alt="The Drawing Tablet panel open on the Omarchy desktop" width="760">
 </p>
 
 Works with any tablet libinput sees as a tablet: every Wacom, and the Huion, XP-Pen, Gaomon and Ugee models with kernel support. Pick the target screen, keep the tablet's proportions or draw a custom region, flip it for a left-handed grip (or rotate a display tablet), switch between pen and mouse mode, limit the pen's pressure range, and hide the cursor while you draw. A small background service re-applies the mapping on hotplug and after every Hyprland reload.

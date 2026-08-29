@@ -35,6 +35,7 @@ Hyprland forgets runtime input settings whenever its configuration reloads. The 
 - Drag the custom region on the preview, or nudge it with `Shift` + arrows and resize it with `Ctrl` + arrows
 - Custom region in percent of the screen and custom active area in millimetres
 - What the kernel and libwacom know about the tablet: model, vendor, size, pen capabilities, pad buttons, which rotations libinput allows, Hyprland's name for it
+- Pen buttons: turn button 1, button 2 and the eraser end into real left, middle or right clicks that work in every app, or leave them to the app
 - Stylus settings, which Hyprland applies to every tablet: clip the pressure range, make a pen's eraser button send a pen button instead, and hide the cursor while the pen is in use
 - Every remembered tablet, connected or not, with a way to forget one
 
@@ -78,7 +79,11 @@ Multiple tablets can be connected at once; each gets its own profile. A tablet l
 
 ## Pen buttons and pad keys
 
-Hyprland forwards the pen's side buttons and the eraser to the application under the pen through the Wayland tablet protocol, without remapping. In applications with tablet support (Krita, GIMP, Inkscape, Blender, Xournal++, GTK and Qt apps in general, Chromium since mid-2025) the first button is a middle click and the second a right click unless the app assigns them itself. Applications without tablet support only see the pointer move: the pen cannot click in them, which is a Hyprland limitation ([discussion #6226](https://github.com/hyprwm/Hyprland/discussions/6226)). Pad buttons, rings and strips go the same way, and Hyprland has no way to bind them to keys; [input-remapper](https://github.com/sezanzeb/input-remapper) can turn pad buttons into key presses at the evdev level for now. The Tablet pane lists what your pen and pad have.
+Hyprland forwards the pen's side buttons and the eraser to the application under the pen through the Wayland tablet protocol, without remapping. In applications with tablet support (Krita, GIMP, Inkscape, Blender, Xournal++, GTK and Qt apps in general, Chromium since mid-2025) the first button is a middle click and the second a right click unless the app assigns them itself. Applications without tablet support only see the pointer move: the pen cannot click in them, which is a Hyprland limitation ([discussion #6226](https://github.com/hyprwm/Hyprland/discussions/6226)).
+
+The **Pen buttons** pane in the expanded editor gets around that for the buttons: map button 1, button 2 or the eraser end to a left, middle or right click and the background service runs a small helper (`tools/pen-buttons.py`, standard-library Python) that reads the pen's evdev node without taking it away from libinput and presses that button on a virtual mouse, where the pen already put the cursor. It works in every app, including ones without tablet support. Apps that already use the buttons would get them twice, so the default is "let the app decide". The virtual mouse needs `/dev/uinput`; when it is not open to your user, the pane offers a one-time udev rule (`uaccess`, asks for your password).
+
+Pad buttons, rings and strips are forwarded the same way and Hyprland has no way to bind them; [input-remapper](https://github.com/sezanzeb/input-remapper) can turn them into key presses at the evdev level for now. The Tablet pane lists what your pen and pad have.
 
 ## Rotation is a libinput decision
 

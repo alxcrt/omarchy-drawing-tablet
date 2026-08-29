@@ -18,6 +18,8 @@ Item {
   property var tablets: []
   property var monitors: []
   property var hyprlandNames: []
+  property bool uinput: false
+  readonly property string pluginDir: String(Qt.resolvedUrl(".")).replace(/^file:\/\//, "").replace(/\/$/, "")
   property bool probed: false
   property bool probing: false
   property bool applying: false
@@ -140,6 +142,7 @@ Item {
       root.tablets = probe.tablets
       root.monitors = probe.monitors
       root.hyprlandNames = probe.hyprlandNames
+      root.uinput = probe.uinput === true
       root.probed = true
       var merged = Model.mergeDiscovered(root.document, probe.tablets)
       if (merged.changed) {
@@ -171,6 +174,9 @@ Item {
         return
       }
       root.applyQueued = false
+      // The atomic rename left the watcher on the old inode; point it at the
+      // new file, or outside edits go unnoticed from now on.
+      documentFile.reload()
       root.applyAll()
     }
   }

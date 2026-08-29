@@ -37,6 +37,20 @@ BTN_LEFT, BTN_RIGHT, BTN_FORWARD and BTN_BACK rather than BTN_0..N.
 
 # What the plugin does with this
 
-Nothing, deliberately: it shows the pen's button count and eraser type in the
-Tablet pane, says what the buttons do, and links the limitation. A "remap pen
-buttons" control would have nothing behind it.
+Shows the pen's button count and eraser type in the Tablet pane, and offers
+to press a real mouse button for each control: `tools/pen-buttons.py` reads
+the pen's evdev node (read-only, never grabbed, so libinput keeps it) and
+emits BTN_LEFT/RIGHT/MIDDLE on a uinput mouse named "Drawing Tablet for
+Omarchy pen buttons". A uinput device needs REL_X/REL_Y and INPUT_PROP_POINTER
+to be classified as a mouse by udev and libinput even though it never moves;
+verified by Hyprland listing it under `mice`. The click lands where the
+tablet already warped the cursor. The default is "let the app decide", since
+tablet-aware apps also receive the raw button and would act twice.
+
+`/dev/uinput` is root:root 0600 by default; on this box it was open to the
+user through Steam's `60-steam-input.rules` (`TAG+="uaccess"`). The plugin
+ships the same one-line rule for machines without it, installed with sudo
+through Omarchy's presented terminal.
+
+Tip clicks are not emulated on purpose: Hyprland suppresses pointer motion
+while the tip is down, so a synthetic left click could press but never drag.

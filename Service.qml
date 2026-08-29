@@ -39,6 +39,61 @@ Item {
     id: engine
   }
 
+  // Pen buttons as real mouse buttons. The helper is restarted whenever the
+  // plan changes (a profile edit, a tablet plugged or unplugged) and stopped
+  // when nothing is mapped, so it costs nothing until someone asks for it.
+  property string helperPlan: ""
+  property string helperError: ""
+
+  function syncHelper() {
+    var plan = Model.penButtonPlan(engine.document, engine.tablets)
+    var text = plan.tablets.length ? JSON.stringify(plan) : ""
+    if (text === root.helperPlan && (helper.running || text === "")) return
+    root.helperPlan = text
+    if (helper.running) {
+      // Stopping it makes onExited start the new plan.
+      helper.running = false
+      return
+    }
+    root.startHelper()
+  }
+
+  function startHelper() {
+    if (root.helperPlan === "" || helper.running) return
+    if (!engine.uinput) {
+      root.helperError = "Virtual input is not available: /dev/uinput is not open to this user."
+      console.warn("omarchy-drawing-tablet: " + root.helperError)
+      return
+    }
+    root.helperError = ""
+    helper.command = Model.penButtonsCommand(engine.pluginDir, JSON.parse(root.helperPlan))
+    helper.running = true
+  }
+
+  Process {
+    id: helper
+    stderr: SplitParser {
+      splitMarker: "\n"
+      onRead: function(line) { if (String(line || "").trim() !== "") console.log("omarchy-drawing-tablet pen buttons: " + line) }
+    }
+    onExited: function(exitCode) {
+      // A plan change stops the old helper; start the new one. Any other
+      // exit is retried after a pause so an unplugged tablet does not spin.
+      if (root.helperPlan !== "") helperRestartTimer.restart()
+    }
+  }
+
+  Timer {
+    id: helperRestartTimer
+    interval: 1500
+    onTriggered: root.startHelper()
+  }
+
+  Connections {
+    target: engine
+    function onProbeFinished() { root.syncHelper() }
+  }
+
   // Hyprland has no IPC event for input devices, so udev is the hotplug
   // signal. Only the input subsystem is watched, and the burst of add events a
   // tablet raises (pen, pad, touch) collapses into one re-apply.
@@ -75,6 +130,9 @@ Item {
     interval: 1200
     onTriggered: {
       console.log("omarchy-drawing-tablet: re-applying tablet mappings (" + root.pendingReason + ")")
+      // Re-read the profile first: a re-apply is exactly when a stale copy
+      // would do damage, and the read is free.
+      engine.reloadDocument()
       engine.probeAndApply()
     }
   }

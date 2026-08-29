@@ -68,6 +68,7 @@ Panel {
   readonly property bool leftHandedAvailable: !!root.profile && root.profile.reversible !== false
   readonly property bool displayTablet: !!root.liveTablet && root.liveTablet.display === true
   readonly property bool eraserButtonPresent: Model.anyEraserButton(engine.tablets)
+  readonly property bool penButtonsMapped: !!root.profile && Model.penButtonSummary(root.profile) !== "apps decide"
   readonly property string connectionLabel: root.profile
     ? (root.selectedConnected ? "Connected · " + Model.mappingSummary(root.profile, engine.monitors) : "Not connected")
     : (engine.probed ? "No tablet connected" : "Looking for tablets…")
@@ -217,6 +218,21 @@ Panel {
   function toggleRelative() {
     if (root.profile) root.editProfile({ relativeInput: !root.profile.relativeInput })
   }
+
+  function setButton(which, action) {
+    if (!root.profile) return
+    var buttons = Model.normalizeButtons(root.profile.buttons)
+    buttons[which] = String(action)
+    root.editProfile({ buttons: buttons })
+  }
+
+  function allowVirtualInput() {
+    root.lastError = ""
+    uinputSetupProcess.command = Model.uinputRuleCommand()
+    uinputSetupProcess.startDetached()
+  }
+
+  Process { id: uinputSetupProcess }
 
   function nudgeRegion(dx, dy, dw, dh) {
     if (!root.profile || !root.customRegion) return
@@ -504,6 +520,7 @@ Panel {
         || expandedControls.anyPopupOpen
         || expandedTabletControls.anyPopupOpen
         || stylusControls.anyPopupOpen
+        || button1Dropdown.popupOpen || button2Dropdown.popupOpen || eraserDropdown.popupOpen
         || regionXField.field.activeFocus || regionYField.field.activeFocus
         || regionWField.field.activeFocus || regionHField.field.activeFocus
         || areaXField.field.activeFocus || areaYField.field.activeFocus
@@ -1199,6 +1216,107 @@ Panel {
                         Qt.callLater(function() { keyCatcher.forceActiveFocus() })
                       }
                     }
+                  }
+                }
+              }
+
+              EditorPane {
+                width: parent.width
+                height: buttonsContent.implicitHeight + Style.space(42)
+                title: "Pen buttons"
+                meta: root.profile ? Model.penButtonSummary(root.profile) : ""
+                foreground: root.foreground
+                dim: root.dim
+                accent: Color.accent
+                fontFamily: root.fontFamily
+
+                Column {
+                  id: buttonsContent
+                  anchors.left: parent.left
+                  anchors.right: parent.right
+                  anchors.top: parent.top
+                  spacing: Style.space(8)
+
+                  Text {
+                    textFormat: Text.PlainText
+                    width: parent.width
+                    text: "Hyprland hands pen buttons only to apps with tablet support. Map one here and the plugin presses a real mouse button for it, in every app, where the pen already put the cursor. Leave it to the app in drawing apps that already use the buttons, or they will fire twice."
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    wrapMode: Text.WordWrap
+                  }
+
+                  Grid {
+                    width: parent.width
+                    columns: 3
+                    spacing: Style.space(8)
+                    readonly property real cellWidth: (width - spacing * 2) / 3
+
+                    PanelDropdown {
+                      id: button1Dropdown
+                      popupParent: keyCatcher
+                      ownerOpen: root.opened && root.expanded
+                      width: parent.cellWidth
+                      label: "BUTTON 1"
+                      options: Model.buttonActionOptions()
+                      value: root.profile ? root.profile.buttons.button1 : "app"
+                      enabled: !!root.profile
+                      foreground: root.foreground
+                      fontFamily: root.fontFamily
+                      onChanged: function(value) { root.setButton("button1", value) }
+                    }
+
+                    PanelDropdown {
+                      id: button2Dropdown
+                      popupParent: keyCatcher
+                      ownerOpen: root.opened && root.expanded
+                      width: parent.cellWidth
+                      label: "BUTTON 2"
+                      options: Model.buttonActionOptions()
+                      value: root.profile ? root.profile.buttons.button2 : "app"
+                      enabled: !!root.profile
+                      foreground: root.foreground
+                      fontFamily: root.fontFamily
+                      onChanged: function(value) { root.setButton("button2", value) }
+                    }
+
+                    PanelDropdown {
+                      id: eraserDropdown
+                      popupParent: keyCatcher
+                      ownerOpen: root.opened && root.expanded
+                      width: parent.cellWidth
+                      label: "ERASER END"
+                      options: Model.buttonActionOptions()
+                      value: root.profile ? root.profile.buttons.eraser : "app"
+                      enabled: !!root.profile
+                      foreground: root.foreground
+                      fontFamily: root.fontFamily
+                      onChanged: function(value) { root.setButton("eraser", value) }
+                    }
+                  }
+
+                  Text {
+                    textFormat: Text.PlainText
+                    visible: root.penButtonsMapped && engine.probed && !engine.uinput
+                    width: parent.width
+                    text: "Virtual input is not available on this machine (/dev/uinput is not open to your user), so these mappings cannot act yet. Allow it once below; it asks for your password."
+                    color: root.urgent
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    wrapMode: Text.WordWrap
+                  }
+
+                  Button {
+                    visible: root.penButtonsMapped && engine.probed && !engine.uinput
+                    text: "Allow virtual input"
+                    iconText: "󰌆"
+                    bordered: true
+                    selected: true
+                    foreground: root.foreground
+                    fontFamily: root.fontFamily
+                    fontSize: Style.font.caption
+                    onClicked: root.allowVirtualInput()
                   }
                 }
               }

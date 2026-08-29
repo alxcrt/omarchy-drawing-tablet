@@ -36,6 +36,8 @@ const PROBE = [
   "ID_MODEL_ID=037b",
   "ID_SERIAL_SHORT=9JE00M1015644",
   "ID_VENDOR_ID=056a",
+  "== uinput",
+  "writable",
   "== libwacomdb",
   "/usr/share/libwacom/wacom-one-by-wacom-m-p2.tablet:ModelName=CTL-672",
   "/usr/share/libwacom/wacom-one-by-wacom-m-p2.tablet:DeviceMatch=usb|056a|037b",
@@ -474,6 +476,48 @@ test("every Text in the QML renders plain text so device names cannot inject mar
     }
   }
 })
+
+test("pen buttons become a plan for the helper only when something is mapped and the tablet is present", () => {
+  const probe = Model.parseProbe(PROBE)
+  assert.equal(probe.uinput, true)
+  const document = Model.upsertProfile(Model.parseDocument(""), profileFor())
+  assert.deepEqual(Model.penButtonPlan(document, probe.tablets), { tablets: [] })
+  assert.equal(Model.penButtonSummary(document.tablets[0]), "apps decide")
+  const mapped = Model.upsertProfile(document, profileFor({ buttons: { button1: "right", button2: "middle", eraser: "bogus" } }))
+  assert.deepEqual(mapped.tablets[0].buttons, { button1: "right", button2: "middle", eraser: "app" })
+  assert.equal(Model.penButtonSummary(mapped.tablets[0]), "button 1 → right click · button 2 → middle click")
+  const plan = Model.penButtonPlan(mapped, probe.tablets)
+  assert.deepEqual(plan, { tablets: [{ node: "/dev/input/event18", label: "One by Wacom (medium)", actions: { button1: "right", button2: "middle", eraser: "app" } }] })
+  // Unplugged: nothing for the helper to read.
+  assert.deepEqual(Model.penButtonPlan(mapped, []), { tablets: [] })
+  const command = Model.penButtonsCommand("/home/me/.config/omarchy/plugins/x/", plan)
+  assert.equal(command[0], "python3")
+  assert.equal(command[1], "/home/me/.config/omarchy/plugins/x/tools/pen-buttons.py")
+  assert.deepEqual(JSON.parse(command[2]), plan)
+  const setup = Model.uinputRuleCommand()
+  assert.deepEqual(setup.slice(0, 6), ["omarchy", "launch", "floating", "terminal", "with", "presentation"])
+  assert.match(setup[6], /TAG\+="uaccess"/)
+  assert.match(setup[6], /udevadm trigger --name-match=uinput/)
+})
+
+test("the helper script parses, self-describes, and rejects a bad plan", () => {
+  const helper = path.join(__dirname, "..", "tools", "pen-buttons.py")
+  assert.ok(fs.existsSync(helper))
+  const usage = childProcessSync(["python3", helper, "--help"])
+  assert.equal(usage.status, 64)
+  assert.match(usage.stdout, /Actions: "app"/)
+  const bad = childProcessSync(["python3", helper, "{not json"])
+  assert.equal(bad.status, 64)
+  const empty = childProcessSync(["python3", helper, JSON.stringify({ tablets: [] })])
+  assert.equal(empty.status, 0)
+  assert.match(empty.stderr, /nothing to do/)
+})
+
+function childProcessSync(argv) {
+  const childProcess = require("node:child_process")
+  const result = childProcess.spawnSync(argv[0], argv.slice(1), { encoding: "utf8" })
+  return { status: result.status, stdout: String(result.stdout || ""), stderr: String(result.stderr || "") }
+}
 
 test("the manifest declares both entry points and they exist", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "manifest.json"), "utf8"))

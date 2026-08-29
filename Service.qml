@@ -89,6 +89,13 @@ Item {
     onTriggered: root.startHelper()
   }
 
+  // The shell recreates this service on a plugin reload; the old helper must
+  // go with the old instance or two virtual mice would press every button.
+  Component.onDestruction: {
+    root.helperPlan = ""
+    if (helper.running) helper.running = false
+  }
+
   Connections {
     target: engine
     function onProbeFinished() { root.syncHelper() }

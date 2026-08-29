@@ -54,3 +54,11 @@ through Omarchy's presented terminal.
 
 Tip clicks are not emulated on purpose: Hyprland suppresses pointer motion
 while the tip is down, so a synthetic left click could press but never drag.
+
+## Kernel key capabilities vs libwacom (2026-08-29)
+
+`libwacom-list-local-devices` lists styli `0xfffff` ("General Pen") and `0xffffe` ("General Pen Eraser") when it has no stylus data for the tablet (`WACOM_STYLUS_FALLBACK_ID` / `WACOM_ERASER_FALLBACK_ID` in libwacom). The One by Wacom CTL-672 is such a case: the kernel advertises `BTN_TOOL_RUBBER`, `BTN_STYLUS` and `BTN_STYLUS2` (`/sys/class/input/eventN/device/capabilities/key` = `1c03 0 0 0 0 0`) because the tablet accepts an eraser-equipped pen, but the LP-190 pen in the box has two switches and no eraser. The probe now reads `capabilities/key` and the panel says "eraser if the pen has one" instead of claiming one.
+
+## Middle click pastes in browsers
+
+A middle click from the virtual mouse behaves like any middle click on Linux: Chromium and Firefox paste the primary selection on release, so in Excalidraw a pan with a pen button mapped to middle click ends with a paste. The "Hold Space" action (a second uinput device, a keyboard advertising ESC..D plus Space so udev tags it `ID_INPUT_KEYBOARD`) gives the pan gesture of Excalidraw, Krita, GIMP and Inkscape without that.

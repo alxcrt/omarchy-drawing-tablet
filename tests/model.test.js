@@ -10,6 +10,8 @@ const PROBE = [
   "UNIQ=",
   "PHYS=usb-0000:00:14.0-3.4.4/input0",
   "PROPS=1",
+  "KEYS=1c03 0 0 0 0 0",
+  "ABS=3000003",
   "BUSTYPE=0003",
   "VENDOR=056a",
   "PRODUCT=037b",
@@ -126,9 +128,13 @@ test("the probe parser finds the tablet, its model, its size, and Hyprland's nam
   assert.equal(tablet.widthMm, 216)
   assert.equal(tablet.heightMm, 135)
   assert.equal(tablet.hasPad, true)
+  // libwacom only offered its generic pen and eraser (0xfffff / 0xffffe),
+  // so the pen is unknown: the kernel says two switches and an eraser tool
+  // the tablet would accept, not that the pen in the box has one.
   assert.equal(tablet.penButtons, 2)
-  assert.equal(tablet.eraserType, "invert")
-  assert.equal(Model.penLabel(tablet), "2 buttons · eraser on the back end")
+  assert.equal(tablet.eraserType, "unknown")
+  assert.equal(tablet.penKnown, false)
+  assert.equal(Model.penLabel(tablet), "2 buttons · eraser if the pen has one")
   assert.equal(Model.anyEraserButton([tablet]), false)
   assert.equal(tablet.known, true)
   assert.equal(tablet.display, false)
@@ -136,7 +142,9 @@ test("the probe parser finds the tablet, its model, its size, and Hyprland's nam
   assert.equal(tablet.reversible, true)
   assert.equal(Model.rotationSupportLabel(tablet), "180° only, via Left-handed (external tablet)")
   assert.equal(Model.padLabel(tablet), "present (not managed here)")
-  assert.equal(Model.stylusSummary(tablet), "pressure · tilt · 2 buttons · eraser")
+  // The kernel's word, not libwacom's generic pen (which would claim tilt and an eraser).
+  assert.deepEqual(tablet.penAxes, ["pressure", "distance"])
+  assert.equal(Model.stylusSummary(tablet), "pressure · 2 buttons")
   assert.equal(Model.tabletSizeLabel(tablet), "216 × 135 mm")
   assert.deepEqual(probe.hyprlandNames, ["wacom-one-by-wacom-m-pen"])
   assert.equal(probe.monitors.length, 2)
@@ -486,6 +494,9 @@ test("pen buttons become a plan for the helper only when something is mapped and
   const mapped = Model.upsertProfile(document, profileFor({ buttons: { button1: "right", button2: "middle", eraser: "bogus" } }))
   assert.deepEqual(mapped.tablets[0].buttons, { button1: "right", button2: "middle", eraser: "app" })
   assert.equal(Model.penButtonSummary(mapped.tablets[0]), "button 1 → right click · button 2 → middle click")
+  const panning = Model.upsertProfile(document, profileFor({ buttons: { button1: "space", button2: "app", eraser: "app" } }))
+  assert.equal(Model.penButtonSummary(panning.tablets[0]), "button 1 → hold Space")
+  assert.ok(Model.buttonActionOptions().some(o => o.value === "space"))
   const plan = Model.penButtonPlan(mapped, probe.tablets)
   assert.deepEqual(plan, { tablets: [{ node: "/dev/input/event18", label: "One by Wacom (medium)", actions: { button1: "right", button2: "middle", eraser: "app" } }] })
   // Unplugged: nothing for the helper to read.
@@ -513,6 +524,18 @@ test("the helper script parses, self-describes, and rejects a bad plan", () => {
   assert.match(empty.stderr, /nothing to do/)
 })
 
+test("the helper turns pen buttons into the mapped clicks end to end (needs /dev/uinput)", (t) => {
+  const helper = path.join(__dirname, "..", "tools", "pen-buttons.py")
+  const check = childProcessSync(["python3", helper, "--check"])
+  if (check.status !== 0) {
+    t.skip("/dev/uinput is not open to this user here")
+    return
+  }
+  const result = childProcessSync(["python3", helper, "--self-test"])
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /self-test ok/)
+})
+
 function childProcessSync(argv) {
   const childProcess = require("node:child_process")
   const result = childProcess.spawnSync(argv[0], argv.slice(1), { encoding: "utf8" })
@@ -527,4 +550,45 @@ test("the manifest declares both entry points and they exist", () => {
   for (const entry of Object.values(manifest.entryPoints)) {
     assert.ok(fs.existsSync(path.join(__dirname, "..", entry)), entry + " exists")
   }
+})
+
+test("kernel key capabilities say which pen switches and tools a tablet accepts", () => {
+  // The One by Wacom M pen node: BTN_TOOL_PEN, BTN_TOOL_RUBBER, BTN_TOUCH, BTN_STYLUS, BTN_STYLUS2.
+  const keys = "1c03 0 0 0 0 0"
+  assert.equal(Model.keyBit(keys, 0x140), true)
+  assert.equal(Model.keyBit(keys, 0x141), true)
+  assert.equal(Model.keyBit(keys, 0x14a), true)
+  assert.equal(Model.keyBit(keys, 0x14b), true)
+  assert.equal(Model.keyBit(keys, 0x14c), true)
+  assert.equal(Model.keyBit(keys, 0x149), false)
+  assert.equal(Model.keyBit(keys, 0x110), false)
+  assert.deepEqual(Model.kernelPenCapabilities({ keys, abs: "3000003" }), { buttons: 2, eraser: true, axes: ["pressure", "distance"] })
+  assert.equal(Model.kernelPenCapabilities({ keys: "" }), null)
+  // Three switches, no eraser tool, pressure and tilt (a Huion-style pen).
+  assert.deepEqual(Model.kernelPenCapabilities({ keys: "1a01 0 0 0 0 0", abs: "d000003" }), { buttons: 3, eraser: false, axes: ["pressure", "tilt"] })
+})
+
+test("a pen libwacom really knows is described from its stylus data, not the kernel", () => {
+  const model = { styli: [
+    { id: "0x802", name: "Intuos4/5 Grip Pen", axes: ["x", "y", "pressure"], buttons: 2, eraser: false, eraserType: "" },
+    { id: "0x80a", name: "Intuos4/5 Grip Pen Eraser", axes: ["x", "y", "pressure"], buttons: 2, eraser: true, eraserType: "invert" }
+  ] }
+  assert.deepEqual(Model.penCapabilities(model, { buttons: 3, eraser: false, axes: [] }), { buttons: 2, eraserType: "invert", axes: ["x", "y", "pressure"], known: true })
+  assert.equal(Model.stylusSummary({ penAxes: ["x", "y", "pressure", "tilt"], penButtons: 2, eraserType: "invert" }), "pressure · tilt · 2 buttons · eraser")
+  const generic = { styli: [
+    { id: "0xffffe", name: "General Pen Eraser", axes: [], buttons: 2, eraser: true, eraserType: "invert" },
+    { id: "0xfffff", name: "General Pen", axes: [], buttons: 2, eraser: false, eraserType: "" }
+  ] }
+  assert.deepEqual(Model.penCapabilities(generic, { buttons: 2, eraser: false, axes: ["pressure"] }), { buttons: 2, eraserType: "", axes: ["pressure"], known: false })
+  assert.deepEqual(Model.penCapabilities(generic, null), { buttons: 2, eraserType: "unknown", axes: [], known: false })
+  assert.equal(Model.penLabel({ penButtons: 2, eraserType: "", penKnown: false }), "2 buttons · no eraser")
+  assert.equal(Model.penLabel({ penButtons: 0, eraserType: "", penKnown: false, styli: [] }), "unknown to libwacom")
+})
+
+test("the plugin's own self-test pen is never listed as a tablet", () => {
+  const records = Model.splitProbeSections(PROBE).devices.map(Model.parseDeviceBlock)
+  const fake = { name: "Drawing Tablet for Omarchy self-test pen", uniq: "", phys: "", properties: 0, keys: "", bustype: 6, vendor: "0a11", product: "0dd2",
+    props: { DEVNAME: "/dev/input/event40", ID_INPUT: "1", ID_INPUT_TABLET: "1" } }
+  const tablets = Model.discoverTablets(records.concat([fake]), [], [])
+  assert.deepEqual(tablets.map(t => t.kernelName), ["Wacom One by Wacom M Pen"])
 })

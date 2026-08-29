@@ -105,6 +105,9 @@ Item {
     path: root.documentPath
     watchChanges: true
     printErrors: false
+    // Watching only raises the signal; the file is re-read here so an edit by
+    // hand, or by another bar instance, reaches this engine.
+    onFileChanged: documentFile.reload()
     onLoaded: {
       var text = documentFile.text()
       var external = root.documentLoaded && text !== root.lastWrittenText

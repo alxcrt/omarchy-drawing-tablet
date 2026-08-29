@@ -105,7 +105,7 @@ magick -size 1600x900 "xc:$bg" \
   -font "$font_regular" -fill "$dim" -pointsize 24 -annotate +90+320 "Map a pen tablet to the right screen\nfrom the bar, and keep it there across\nhotplug and Hyprland reloads." \
   -fill "$fg" -pointsize 22 -annotate +90+470 "· keep the tablet's proportions, or draw a region\n· left-handed flip, mouse mode, pressure limits\n· profiles follow the tablet by make, model and serial" \
   -fill "$dim" -pointsize 17 -annotate +90+700 "omarchy plugin add https://github.com/alxcrt/omarchy-drawing-tablet.git --enable" \
-  "$out/social-card.png"
+  -depth 8 "$out/social-card.png"
 
 # A second card for the editor itself, wide, with a one-line caption.
 # The editor is placed at its native size so its text stays crisp; the
@@ -114,6 +114,6 @@ magick -size 1600x900 "xc:$bg" \
   \( "$out/expanded.png" \( +clone -background black -shadow 60x24+0+16 \) +swap -background none -layers merge +repage \) \
   -gravity north -geometry +0+60 -composite \
   -font "$font_regular" -fill "$dim" -pointsize 20 -gravity south -annotate +0+58 "The expanded editor: drag the region on the preview, set custom areas, tune the stylus." \
-  "$out/social-card-editor.png"
+  -depth 8 "$out/social-card-editor.png"
 
 echo "wrote $out/compact.png $out/expanded.png $out/bar.png $out/social-card.png $out/social-card-editor.png and preview.png"

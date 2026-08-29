@@ -1132,7 +1132,7 @@ Panel {
                   Text {
                     textFormat: Text.PlainText
                     width: parent.width
-                    text: "Pen buttons and the eraser reach the app under the pen through the Wayland tablet protocol: in apps that support tablets they act as middle and right click unless the app assigns them; apps without tablet support only see the pointer move. Hyprland does not remap them."
+                    text: "Pen buttons and the eraser reach the app under the pen through the Wayland tablet protocol: in apps that support tablets they act as middle and right click unless the app assigns them; apps without tablet support only see the pointer move. Hyprland does not remap them. The Pen rows come from libwacom; when it has no data on the pen they show what the tablet accepts, which can be more than the pen in the box has."
                     color: root.dim
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
@@ -1240,7 +1240,7 @@ Panel {
                   Text {
                     textFormat: Text.PlainText
                     width: parent.width
-                    text: "Hyprland hands pen buttons only to apps with tablet support. Map one here and the plugin presses a real mouse button for it, in every app, where the pen already put the cursor. Leave it to the app in drawing apps that already use the buttons, or they will fire twice."
+                    text: "Hyprland hands pen buttons only to apps with tablet support. Map one here and the plugin presses a real mouse button, or holds Space, for it in every app, where the pen already put the cursor. Button 1 is the pen's BTN_STYLUS switch, usually the one nearer the tip. A middle click also pastes the primary selection in browsers, exactly as a mouse's does; Hold Space is the pan gesture of Excalidraw, Krita, GIMP and Inkscape without that side effect. Leave a button to the app in drawing apps that already use it, or it fires twice."
                     color: root.dim
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
@@ -1285,8 +1285,11 @@ Panel {
                       id: eraserDropdown
                       popupParent: keyCatcher
                       ownerOpen: root.opened && root.expanded
+                      // Only tablets that can report an eraser tool get the row;
+                      // a pen libwacom has no data on may or may not have one.
+                      visible: !root.liveTablet || String(root.liveTablet.eraserType || "") !== ""
                       width: parent.cellWidth
-                      label: "ERASER END"
+                      label: root.liveTablet && root.liveTablet.eraserType === "unknown" ? "ERASER END, IF ANY" : "ERASER END"
                       options: Model.buttonActionOptions()
                       value: root.profile ? root.profile.buttons.eraser : "app"
                       enabled: !!root.profile

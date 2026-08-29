@@ -107,4 +107,11 @@ magick -size 1600x900 "xc:$bg" \
   -fill "$dim" -pointsize 17 -annotate +90+700 "omarchy plugin add https://github.com/alxcrt/omarchy-tablet.git --enable" \
   "$out/social-card.png"
 
-echo "wrote $out/compact.png $out/expanded.png $out/bar.png $out/social-card.png and preview.png"
+# A second card for the editor itself, wide, with a one-line caption.
+magick -size 1600x900 "xc:$bg" \
+  \( "$out/expanded.png" -resize 1440x \( +clone -background black -shadow 60x24+0+16 \) +swap -background none -layers merge +repage \) \
+  -gravity north -geometry +0+70 -composite \
+  -font "$font_regular" -fill "$dim" -pointsize 22 -gravity south -annotate +0+56 "The expanded editor: drag the region on the preview, set custom areas in percent or millimetres, tune the stylus." \
+  "$out/social-card-editor.png"
+
+echo "wrote $out/compact.png $out/expanded.png $out/bar.png $out/social-card.png $out/social-card-editor.png and preview.png"

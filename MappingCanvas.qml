@@ -160,9 +160,9 @@ BorderSurface {
         enabled: root.interactive && root.customRegion
         hoverEnabled: enabled
         cursorShape: enabled ? (dragStarted ? Qt.ClosedHandCursor : Qt.OpenHandCursor) : Qt.ArrowCursor
-        // Pointer coordinates must come from the stationary canvas. Using
-        // mouse.x/y directly makes the origin move with the region and feeds
-        // its own movement back into the next drag delta.
+        // Measure the drag against the screens item, which does not move; the
+        // region itself follows the pointer, so its own mouse coordinates
+        // would count its displacement twice.
         property real pointerStartX: 0
         property real pointerStartY: 0
         property real offsetX: 0

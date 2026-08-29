@@ -452,10 +452,11 @@ test("the plugin update check is throttled, refuses symlinked stamps, and update
   assert.equal(command[5], "6")
   assert.match(command[2], /\[ ! -L "\$stamp" \] \|\| exit 6/)
   assert.match(command[2], /exit 10/)
+  assert.match(command[2], /find "\$stamp" -newermt "-\$2 hours"/)
   assert.deepEqual(Model.pluginUpdateCommand("io.github.alxcrt.tablet"), ["omarchy", "plugin", "update", "io.github.alxcrt.tablet", "--yes"])
   assert.equal(Model.pluginUpdated("Updated io.github.alxcrt.tablet."), true)
   assert.equal(Model.pluginUpdated("io.github.alxcrt.tablet is up to date."), false)
-  assert.deepEqual(Model.shellRestartCommand(), ["sh", "-c", "setsid -f omarchy-restart-shell >/dev/null 2>&1"])
+  assert.deepEqual(Model.shellRestartCommand(), ["setsid", "-f", "omarchy-restart-shell"])
 })
 
 test("every Text in the QML renders plain text so device names cannot inject markup", () => {

@@ -2,10 +2,13 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
+// A titled card for the expanded editor. Children land in the content area
+// under the title bar; `meta` is a short right-aligned note such as the
+// screen a mapping targets.
 BorderSurface {
   id: root
 
-  default property alias paneData: content.data
+  default property alias content: body.data
   property string title: ""
   property string meta: ""
   property bool active: false
@@ -14,54 +17,51 @@ BorderSurface {
   property color accent: Color.accent
   property string fontFamily: Style.font.family
 
+  readonly property int inset: Style.space(10)
+  readonly property int titleHeight: Style.space(28)
+
   color: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.018)
   borderSpec: Border.controlSpec(active ? "focus" : "normal", foreground, accent)
   radius: Style.cornerRadius
 
-  Item {
-    id: titleBar
+  Text {
+    textFormat: Text.PlainText
+    id: titleText
     anchors.left: parent.left
+    anchors.top: parent.top
+    anchors.leftMargin: root.inset
+    height: root.titleHeight
+    verticalAlignment: Text.AlignVCenter
+    text: root.title
+    color: root.active ? root.accent : root.dim
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.body
+    font.bold: true
+  }
+
+  Text {
+    textFormat: Text.PlainText
+    anchors.left: titleText.right
     anchors.right: parent.right
     anchors.top: parent.top
-    anchors.leftMargin: Style.space(10)
-    anchors.rightMargin: Style.space(10)
-    height: Style.space(28)
-
-    Text {
-      textFormat: Text.PlainText
-      id: titleLabel
-      anchors.left: parent.left
-      anchors.verticalCenter: parent.verticalCenter
-      text: root.title
-      color: root.active ? root.accent : root.dim
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.body
-      font.bold: true
-      elide: Text.ElideRight
-    }
-
-    Text {
-      textFormat: Text.PlainText
-      anchors.right: parent.right
-      anchors.verticalCenter: parent.verticalCenter
-      width: Math.max(0, parent.width - titleLabel.width - Style.space(12))
-      text: root.meta
-      color: root.dim
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.caption
-      horizontalAlignment: Text.AlignRight
-      elide: Text.ElideRight
-    }
+    anchors.leftMargin: Style.space(12)
+    anchors.rightMargin: root.inset
+    height: root.titleHeight
+    verticalAlignment: Text.AlignVCenter
+    horizontalAlignment: Text.AlignRight
+    text: root.meta
+    color: root.dim
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.caption
+    elide: Text.ElideRight
   }
 
   Item {
-    id: content
-    anchors.left: parent.left
-    anchors.right: parent.right
-    anchors.top: titleBar.bottom
-    anchors.bottom: parent.bottom
-    anchors.leftMargin: Style.space(10)
-    anchors.rightMargin: Style.space(10)
-    anchors.bottomMargin: Style.space(10)
+    id: body
+    anchors.fill: parent
+    anchors.topMargin: root.titleHeight
+    anchors.leftMargin: root.inset
+    anchors.rightMargin: root.inset
+    anchors.bottomMargin: root.inset
   }
 }

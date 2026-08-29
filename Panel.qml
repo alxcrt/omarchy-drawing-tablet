@@ -12,10 +12,6 @@ Panel {
   ipcTarget: "io.github.alxcrt.tablet"
   manageIpc: false
 
-  property var anchorItem: null
-  property var hostWidget: null
-  readonly property var barIdentity: hostWidget || root
-
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color dim: Qt.darker(foreground, 1.5)
   readonly property color urgent: bar ? bar.urgent : Color.urgent
@@ -33,13 +29,19 @@ Panel {
   property var pendingStylus: null
   property bool manualScan: false
 
-  // The service lives in the shell, not in this bar, so reach it through the
-  // host and fall back to doing everything locally when it is not there.
+  // The background service is mounted once by the shell; the panel finds it
+  // through the bar's host so a save can ask it to re-apply, and works alone
+  // when it is not there.
   readonly property var coordinator: {
     var host = root.bar && root.bar.shell ? root.bar.shell : null
     var services = host ? host._services : null
     return services && services[root.moduleName] ? services[root.moduleName] : null
   }
+
+  readonly property bool hideWhenDisconnected: setting("hideWhenDisconnected", false) === true
+  visible: !(hideWhenDisconnected && !tabletConnected)
+  implicitWidth: visible ? button.implicitWidth : 0
+  implicitHeight: button.implicitHeight
 
   readonly property var document: engine.document
   readonly property var profiles: document && document.tablets instanceof Array ? document.tablets : []
@@ -80,8 +82,8 @@ Panel {
   }
   readonly property bool statusIsError: root.lastError !== "" || engine.lastError !== ""
 
-  // Every actionable row in one list, so their cursor positions cannot drift
-  // apart from what is on screen.
+  // Rows that appear only sometimes (an update offer) are listed here, so the
+  // keyboard cursor counts exactly what is on screen.
   readonly property var actionRows: {
     var rows = []
     if (root.pluginUpdateAvailable)
@@ -296,12 +298,6 @@ Panel {
     else root.openFromHotkey()
   }
 
-  function switchPanel(direction) {
-    if (root.bar && typeof root.bar.switchPanelFrom === "function")
-      return root.bar.switchPanelFrom(root.barIdentity, direction)
-    return false
-  }
-
   function handleTextKey(text) {
     var key = String(text || "")
     if (root.keyboardHelpOpen) {
@@ -342,8 +338,8 @@ Panel {
   Process {
     id: pluginUpdateProcess
     onExited: function(exitCode) {
-      // Only a clean "behind the remote" answer is worth acting on. A missing
-      // checkout or an unreachable remote is not the user's problem to solve.
+      // Exit 10 is the one answer that means something; every other status
+      // (no checkout, no network) is a reason to stay quiet, not to nag.
       root.pluginUpdateAvailable = exitCode === 10
     }
   }
@@ -358,8 +354,8 @@ Panel {
         return
       }
       root.pluginUpdateAvailable = false
-      // The files on disk are new, but this panel is still the old code until
-      // the shell reloads it, so finish the job rather than look unchanged.
+      // A pulled update only takes effect once the shell restarts, since the
+      // running QML is still the old version.
       if (Model.pluginUpdated(pluginUpdateOutput.text)) {
         shellRestartProcess.command = Model.shellRestartCommand()
         shellRestartProcess.startDetached()
@@ -396,14 +392,56 @@ Panel {
     onTriggered: engine.probe()
   }
 
-  Component.onCompleted: engine.probe()
+  // Apply once on load as well, so the bar badge and status reflect the
+  // mapping that is in force even before anything is changed.
+  Component.onCompleted: engine.probeAndApply()
+
+  // ---------------------------------------------------------------- bar button
+
+  BarIconButton {
+    id: button
+    anchors.fill: parent
+    bar: root.bar
+    text: "󰽉"
+    dimmed: root.barIconDimmed
+    tooltipText: root.barTooltip
+    iconComponent: Component {
+      Item {
+        OpticalGlyph {
+          id: glyph
+          anchors.fill: parent
+          text: button.text
+          color: button.foreground
+          fontFamily: button.fontFamily
+          fontSize: button.fontSize
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          visible: root.tabletConnected && root.mappingApplied
+          anchors.right: glyph.right
+          anchors.bottom: glyph.bottom
+          anchors.rightMargin: -Style.space(1)
+          anchors.bottomMargin: -Style.space(1)
+          text: "󰄬"
+          color: Color.accent
+          font.family: button.fontFamily
+          font.pixelSize: Math.max(7, Math.round(button.fontSize * 0.45))
+          font.bold: true
+        }
+      }
+    }
+    onPressed: function(mouseButton) {
+      if (mouseButton === Qt.LeftButton) root.toggle()
+    }
+  }
 
   // ---------------------------------------------------------------- window
 
   KeyboardPanel {
     id: panel
-    anchorItem: root.anchorItem
-    owner: root.barIdentity
+    anchorItem: button
+    owner: root
     bar: root.bar
     open: root.opened
     centerOnBar: false
@@ -819,7 +857,7 @@ Panel {
             width: previewPane.width
             height: Style.space(150)
             title: "Tablets"
-            meta: engine.connectedCount + (engine.connectedCount === 1 ? " connected" : " connected")
+            meta: engine.connectedCount + " connected"
             foreground: root.foreground
             dim: root.dim
             accent: Color.accent

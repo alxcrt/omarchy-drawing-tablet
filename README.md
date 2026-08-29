@@ -1,7 +1,7 @@
 <h1 align="center">Drawing Tablet for Omarchy</h1>
 
 <p align="center">
-  Map a pen tablet to the right screen from the bar and keep it there across hotplug and Hyprland reloads, drawn in Omarchy's own panel idiom.
+  Map a pen tablet to the right screen from the bar and keep it there across hotplug and Hyprland reloads, built from Omarchy's own panel components.
 </p>
 
 <p align="center">
@@ -12,9 +12,7 @@
   <img src="preview.png" alt="The Drawing Tablet panel open in the Omarchy bar" width="440">
 </p>
 
-Works with any tablet libinput sees as a tablet: every Wacom, and the Huion, XP-Pen, Gaomon and Ugee models with kernel support. Pick the target screen, keep the tablet's proportions or draw a custom region, rotate it, flip it for a left-handed grip, switch between pen and mouse mode, and limit the pen's pressure range. A small background service re-applies the mapping on hotplug and after every Hyprland reload.
-
-It is the tablet sibling of [hyprmoncfg for Omarchy](https://github.com/crmne/omarchy-hyprmoncfg): the same compact panel with the everyday controls, the same expanded editor with a visual preview, the same keyboard-first navigation.
+Works with any tablet libinput sees as a tablet: every Wacom, and the Huion, XP-Pen, Gaomon and Ugee models with kernel support. Pick the target screen, keep the tablet's proportions or draw a custom region, flip it for a left-handed grip (or rotate a display tablet), switch between pen and mouse mode, limit the pen's pressure range, and hide the cursor while you draw. A small background service re-applies the mapping on hotplug and after every Hyprland reload.
 
 ## The mapping follows the tablet, not the port
 
@@ -45,7 +43,13 @@ Hyprland forgets runtime input settings whenever its configuration reloads. The 
 - `↑ ↓` move between controls, `← →` change the highlighted option, `Enter` opens a menu or flips a switch
 - `e` expands or collapses, `r` rescans tablets and screens, `a` applies again, `d` resets the tablet to Hyprland's defaults, `?` shows the keys
 
-Changes apply and save as you make them; there is no separate apply step, because a wrong tablet mapping cannot strand you the way a wrong monitor layout can.
+Changes apply and save as you make them. There is no separate apply step: a tablet mapping is harmless to get wrong and instant to change back.
+
+## Screenshots
+
+The compact panel is the everyday view; **Expand** opens the editor.
+
+![The expanded editor: mapping preview, tablet facts, stylus settings](screenshots/expanded.png)
 
 ## Install
 
@@ -92,6 +96,16 @@ The profile lives in `~/.config/omarchy-tablet/tablets.json`. Device names and m
 
 Omarchy installs plugins as git checkouts and never pulls them, so this one checks for itself. When the checkout is behind its origin, the panel offers **Update this panel**, which runs `omarchy plugin update io.github.alxcrt.tablet` and restarts the Omarchy shell. The check happens when you open the panel, at most once every few hours, and stays quiet when the checkout has no remote or the remote cannot be reached.
 
+## Settings
+
+One bar setting, editable from Omarchy's bar settings or the command line:
+
+```sh
+omarchy bar set io.github.alxcrt.tablet hideWhenDisconnected true --json
+```
+
+hides the icon while no tablet is plugged in (it comes back on its own).
+
 ## Remove
 
 ```sh
@@ -108,3 +122,11 @@ node --test tests/model.test.js
 ```
 
 `Model.js` holds every decision — device discovery, identity, geometry, the Lua that gets sent — as pure functions, so the whole apply plan is unit-tested without a compositor. The QML is a thin shell around it: `TabletEngine.qml` runs the probe, reads and writes the profile, and calls `hyprctl`; `Panel.qml` is the bar panel; `Service.qml` is the background re-applier.
+
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) first; it says what review will ask for. The measured facts the code relies on live in [`knowledge/`](knowledge/index.md), one file per fact, so a claim about Hyprland or libinput can be checked before it is argued about. Coding agents get their own notes in [AGENTS.md](AGENTS.md).
+
+## Licence
+
+[MIT](LICENSE).

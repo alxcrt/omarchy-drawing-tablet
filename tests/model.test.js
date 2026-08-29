@@ -386,15 +386,15 @@ test("newly seen tablets get a default profile and known ones refresh their size
 })
 
 test("saving goes through argv with an atomic rename", () => {
-  const command = Model.saveCommand("/home/me/.config/omarchy-tablet/tablets.json", "{}")
+  const command = Model.saveCommand("/home/me/.config/omarchy-drawing-tablet/tablets.json", "{}")
   assert.equal(command[0], "sh")
   assert.equal(command[3], "sh")
-  assert.equal(command[4], "/home/me/.config/omarchy-tablet/tablets.json")
+  assert.equal(command[4], "/home/me/.config/omarchy-drawing-tablet/tablets.json")
   assert.equal(command[5], "{}")
   assert.match(command[2], /mkdir -p -- "\$dir"/)
   assert.match(command[2], /mv -f -- "\$tmp" "\$1"/)
   assert.doesNotMatch(command[2], /\$2[^"]/)
-  assert.equal(Model.documentPath("/home/me"), "/home/me/.config/omarchy-tablet/tablets.json")
+  assert.equal(Model.documentPath("/home/me"), "/home/me/.config/omarchy-drawing-tablet/tablets.json")
 })
 
 test("output options list every screen and the value round-trips through the profile", () => {
@@ -445,17 +445,17 @@ test("Hyprland must be new enough to accept Lua over hyprctl eval", () => {
 })
 
 test("the plugin update check is throttled, refuses symlinked stamps, and updates through omarchy", () => {
-  const command = Model.pluginUpdateCheckCommand("io.github.alxcrt.tablet", 6)
+  const command = Model.pluginUpdateCheckCommand("io.github.alxcrt.drawing-tablet", 6)
   assert.equal(command[0], "sh")
   assert.equal(command[3], "sh")
-  assert.equal(command[4], "io.github.alxcrt.tablet")
+  assert.equal(command[4], "io.github.alxcrt.drawing-tablet")
   assert.equal(command[5], "6")
   assert.match(command[2], /\[ ! -L "\$stamp" \] \|\| exit 6/)
   assert.match(command[2], /exit 10/)
   assert.match(command[2], /find "\$stamp" -newermt "-\$2 hours"/)
-  assert.deepEqual(Model.pluginUpdateCommand("io.github.alxcrt.tablet"), ["omarchy", "plugin", "update", "io.github.alxcrt.tablet", "--yes"])
-  assert.equal(Model.pluginUpdated("Updated io.github.alxcrt.tablet."), true)
-  assert.equal(Model.pluginUpdated("io.github.alxcrt.tablet is up to date."), false)
+  assert.deepEqual(Model.pluginUpdateCommand("io.github.alxcrt.drawing-tablet"), ["omarchy", "plugin", "update", "io.github.alxcrt.drawing-tablet", "--yes"])
+  assert.equal(Model.pluginUpdated("Updated io.github.alxcrt.drawing-tablet."), true)
+  assert.equal(Model.pluginUpdated("io.github.alxcrt.drawing-tablet is up to date."), false)
   assert.deepEqual(Model.shellRestartCommand(), ["setsid", "-f", "omarchy-restart-shell"])
 })
 
@@ -474,7 +474,7 @@ test("every Text in the QML renders plain text so device names cannot inject mar
 test("the manifest declares both entry points and they exist", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "manifest.json"), "utf8"))
   assert.equal(manifest.schemaVersion, 1)
-  assert.equal(manifest.id, "io.github.alxcrt.tablet")
+  assert.equal(manifest.id, "io.github.alxcrt.drawing-tablet")
   assert.deepEqual(manifest.kinds, ["bar-widget", "service"])
   for (const entry of Object.values(manifest.entryPoints)) {
     assert.ok(fs.existsSync(path.join(__dirname, "..", entry)), entry + " exists")

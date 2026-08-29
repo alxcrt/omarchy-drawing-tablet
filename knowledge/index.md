@@ -1,6 +1,6 @@
 ---
 type: index
-title: Platform facts behind omarchy-tablet
+title: Platform facts behind omarchy-drawing-tablet
 description: Index of the measured and source-verified facts this plugin depends on
 tags: [omarchy, hyprland, libinput, libwacom, tablet]
 ---

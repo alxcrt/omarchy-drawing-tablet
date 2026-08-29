@@ -31,9 +31,9 @@ and restart the shell, which is the only way a changed `Service.qml` is
 reloaded:
 
 ```sh
-rsync -a --delete --exclude .git ./ ~/.config/omarchy/plugins/io.github.alxcrt.tablet/
+rsync -a --delete --exclude .git ./ ~/.config/omarchy/plugins/io.github.alxcrt.drawing-tablet/
 omarchy restart shell
-journalctl --user -o cat -f | grep omarchy-tablet
+journalctl --user -o cat -f | grep omarchy-drawing-tablet
 ```
 
 The service logs `service started`, `re-applying tablet mappings (<reason>)`

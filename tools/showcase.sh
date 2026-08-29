@@ -13,7 +13,7 @@ set -euo pipefail
 out=${1:-screenshots}
 mkdir -p "$out"
 here=$(cd "$(dirname "$0")/.." && pwd)
-profile="$HOME/.config/omarchy-tablet/tablets.json"
+profile="$HOME/.config/omarchy-drawing-tablet/tablets.json"
 backup=$(mktemp)
 scratch=$(mktemp -d)
 trap 'if [ -s "$backup" ]; then cp "$backup" "$profile"; fi; rm -rf "$scratch" "$backup"' EXIT
@@ -26,7 +26,7 @@ target=$(hyprctl -j monitors | jq -r '.[] | select(.focused) | .description')
 target_name=$focused
 
 # The bar's index of the widget, for togglePanelAt.
-index=$(jq -r '.bar.layout.right | map(.id) | index("io.github.alxcrt.tablet") // -1' "$HOME/.config/omarchy/shell.json")
+index=$(jq -r '.bar.layout.right | map(.id) | index("io.github.alxcrt.drawing-tablet") // -1' "$HOME/.config/omarchy/shell.json")
 [ "$index" -ge 0 ] || { echo "plugin is not in the right bar section" >&2; exit 1; }
 
 # A mapping worth showing: this screen, tablet proportions kept.
@@ -104,7 +104,7 @@ magick -size 1600x900 "xc:$bg" \
   -font "$font" -fill "$fg" -pointsize 54 -gravity northwest -annotate +90+150 "Drawing Tablet\nfor Omarchy" \
   -font "$font_regular" -fill "$dim" -pointsize 24 -annotate +90+320 "Map a pen tablet to the right screen\nfrom the bar, and keep it there across\nhotplug and Hyprland reloads." \
   -fill "$fg" -pointsize 22 -annotate +90+470 "· keep the tablet's proportions, or draw a region\n· left-handed flip, mouse mode, pressure limits\n· profiles follow the tablet by make, model and serial" \
-  -fill "$dim" -pointsize 17 -annotate +90+700 "omarchy plugin add https://github.com/alxcrt/omarchy-tablet.git --enable" \
+  -fill "$dim" -pointsize 17 -annotate +90+700 "omarchy plugin add https://github.com/alxcrt/omarchy-drawing-tablet.git --enable" \
   "$out/social-card.png"
 
 # A second card for the editor itself, wide, with a one-line caption.

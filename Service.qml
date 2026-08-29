@@ -74,7 +74,7 @@ Item {
     id: reapplyTimer
     interval: 1200
     onTriggered: {
-      console.log("omarchy-tablet: re-applying tablet mappings (" + root.pendingReason + ")")
+      console.log("omarchy-drawing-tablet: re-applying tablet mappings (" + root.pendingReason + ")")
       engine.probeAndApply()
     }
   }
@@ -95,13 +95,13 @@ Item {
     function onExternalChange() { root.reapply("profile file changed") }
   }
 
-  Component.onCompleted: console.log("omarchy-tablet: service started")
+  Component.onCompleted: console.log("omarchy-drawing-tablet: service started")
 
   Connections {
     target: engine
     function onApplyFinished(success) {
-      if (success) console.log("omarchy-tablet: applied " + engine.appliedCount + " tablet mapping(s) and the stylus settings")
-      else console.warn("omarchy-tablet: " + engine.lastError)
+      if (success) console.log("omarchy-drawing-tablet: applied " + engine.appliedCount + " tablet mapping(s) and the stylus settings")
+      else console.warn("omarchy-drawing-tablet: " + engine.lastError)
     }
   }
 }

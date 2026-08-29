@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/alxcrt/omarchy-tablet/tags"><img alt="Latest tag" src="https://img.shields.io/github/v/tag/alxcrt/omarchy-tablet?label=version"></a>
+  <a href="https://github.com/alxcrt/omarchy-drawing-tablet/tags"><img alt="Latest tag" src="https://img.shields.io/github/v/tag/alxcrt/omarchy-drawing-tablet?label=version"></a>
 </p>
 
 <p align="center">
@@ -54,7 +54,7 @@ The compact panel is the everyday view; **Expand** opens the editor.
 ## Install
 
 ```sh
-omarchy plugin add https://github.com/alxcrt/omarchy-tablet.git --enable
+omarchy plugin add https://github.com/alxcrt/omarchy-drawing-tablet.git --enable
 ```
 
 Nothing else to install: the panel talks to Hyprland through `hyprctl eval`, reads the tablet's identity from udev, and uses libwacom's database (which ships with libinput) for the model name and pen capabilities.
@@ -90,18 +90,18 @@ There is no switch to turn a tablet off: Hyprland ignores `enabled` for tablets 
 
 Hyprland maps a tablet with `output`, `region_position`/`region_size` in logical pixels relative to that output, and `active_area_position`/`active_area_size` in millimetres of the tablet surface. The profile stores intent rather than pixels — "keep the tablet's proportions on DP-1" — and the numbers are computed from the live monitor layout every time the profile is applied, so a resolution or scale change never stales a mapping.
 
-The profile lives in `~/.config/omarchy-tablet/tablets.json`. Device names and monitor descriptions come from USB and EDID descriptors and are passed to Hyprland only as quoted Lua string data, never as code; a name carrying control characters is refused.
+The profile lives in `~/.config/omarchy-drawing-tablet/tablets.json`. Device names and monitor descriptions come from USB and EDID descriptors and are passed to Hyprland only as quoted Lua string data, never as code; a name carrying control characters is refused.
 
 ## Staying up to date
 
-Omarchy installs plugins as git checkouts and never pulls them, so this one checks for itself. When the checkout is behind its origin, the panel offers **Update this panel**, which runs `omarchy plugin update io.github.alxcrt.tablet` and restarts the Omarchy shell. The check happens when you open the panel, at most once every few hours, and stays quiet when the checkout has no remote or the remote cannot be reached.
+Omarchy installs plugins as git checkouts and never pulls them, so this one checks for itself. When the checkout is behind its origin, the panel offers **Update this panel**, which runs `omarchy plugin update io.github.alxcrt.drawing-tablet` and restarts the Omarchy shell. The check happens when you open the panel, at most once every few hours, and stays quiet when the checkout has no remote or the remote cannot be reached.
 
 ## Settings
 
 One bar setting, editable from Omarchy's bar settings or the command line:
 
 ```sh
-omarchy bar set io.github.alxcrt.tablet hideWhenDisconnected true --json
+omarchy bar set io.github.alxcrt.drawing-tablet hideWhenDisconnected true --json
 ```
 
 hides the icon while no tablet is plugged in (it comes back on its own).
@@ -109,10 +109,10 @@ hides the icon while no tablet is plugged in (it comes back on its own).
 ## Remove
 
 ```sh
-omarchy plugin remove io.github.alxcrt.tablet
+omarchy plugin remove io.github.alxcrt.drawing-tablet
 ```
 
-The tablet goes back to Hyprland's defaults on the next reload. Your profiles remain in `~/.config/omarchy-tablet/tablets.json`.
+The tablet goes back to Hyprland's defaults on the next reload. Your profiles remain in `~/.config/omarchy-drawing-tablet/tablets.json`.
 
 ## Development
 

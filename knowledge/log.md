@@ -2,7 +2,7 @@
 type: log
 title: Knowledge bundle changelog
 description: What was added or corrected in this bundle, and when
-tags: [omarchy-tablet]
+tags: [omarchy-drawing-tablet]
 ---
 
 ## 2026-08-29

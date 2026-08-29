@@ -1,4 +1,4 @@
-# Review rules for omarchy-tablet
+# Review rules for omarchy-drawing-tablet
 
 An Omarchy shell plugin: QML inside the Quickshell process that draws the bar,
 with the logic in `Model.js`. Judge it against these, not against generic

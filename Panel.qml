@@ -8,8 +8,8 @@ import "Model.js" as Model
 
 Panel {
   id: root
-  moduleName: "io.github.alxcrt.tablet"
-  ipcTarget: "io.github.alxcrt.tablet"
+  moduleName: "io.github.alxcrt.drawing-tablet"
+  ipcTarget: "io.github.alxcrt.drawing-tablet"
   manageIpc: false
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground

@@ -142,9 +142,10 @@ Item {
       root.hyprlandNames = probe.hyprlandNames
       root.probed = true
       var merged = Model.mergeDiscovered(root.document, probe.tablets)
-      if (merged.added > 0) {
-        // A new tablet earns a profile on disk right away, so a second panel
-        // instance and the service see the same list.
+      if (merged.changed) {
+        // A new tablet earns a profile on disk right away, and so does any
+        // correction the hardware made, so a second panel instance and the
+        // service see the same document.
         root.applyQueued = true
         root.saveDocument(merged.document)
       } else {

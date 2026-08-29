@@ -29,14 +29,14 @@ Hyprland forgets runtime input settings whenever its configuration reloads. The 
 - Map to: all screens, the focused screen, or one particular screen
 - Screen area: fill the screen, keep the tablet's proportions (largest undistorted box, centred), or a custom region
 - Tablet area: the whole tablet, a crop that matches the screen's proportions (one pen millimetre is the same distance on screen in both directions), or a custom area in millimetres
-- Rotation and flips, left-handed mode, mouse mode, and a pen-input switch per tablet
+- Left-handed mode (a 180° flip), rotation on display tablets, mouse mode, and a pen-input switch per tablet
 - A preview of the screens with the mapped region and the tablet with its active area
 
 **Expanded editor**
 
 - Drag the custom region on the preview, or nudge it with `Shift` + arrows and resize it with `Ctrl` + arrows
 - Custom region in percent of the screen and custom active area in millimetres
-- What the kernel and libwacom know about the tablet: model, vendor, size, pen capabilities, Hyprland's name for it
+- What the kernel and libwacom know about the tablet: model, vendor, size, pen capabilities, pad buttons, which rotations libinput allows, Hyprland's name for it
 - Stylus settings, which Hyprland applies to every tablet: clip the pressure range, and turn the eraser end into a button
 - Every remembered tablet, connected or not, with a way to forget one
 
@@ -60,6 +60,10 @@ Nothing else to install: the panel talks to Hyprland through `hyprctl eval`, rea
 - Omarchy with third-party shell plugins
 - Hyprland 0.55 or newer, which configures input devices in Lua (`hyprctl eval` is how the mapping is applied)
 - A tablet that libinput sees as a tablet
+
+## Rotation is a libinput decision
+
+Hyprland rotates a tablet by handing libinput a calibration matrix, and libinput only accepts one for tablets that are built into a screen (`INPUT_PROP_DIRECT`, or `IntegratedIn` in libwacom's database). On an external tablet the request is silently ignored, so the only rotation such a tablet can do is the 180° flip that libinput implements as *left-handed* — and only when libwacom marks the model `Reversible`. The panel reads the same database libinput does and shows only the controls that will actually do something: display tablets get the full rotation menu, external ones get the Left-handed switch, and the Tablet pane says which case yours is.
 
 Pen side buttons and the eraser end are passed straight to the application under the pen (Krita, GIMP, Inkscape, Blender and friends decide what they do), exactly as Hyprland delivers them; the panel does not remap them. Tablet pad buttons (express keys) are not managed here either, since Hyprland has no per-pad binding surface yet.
 

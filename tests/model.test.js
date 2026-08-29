@@ -9,6 +9,7 @@ const PROBE = [
   "NAME=Wacom One by Wacom M Pen",
   "UNIQ=",
   "PHYS=usb-0000:00:14.0-3.4.4/input0",
+  "PROPS=1",
   "DEVNAME=/dev/input/event18",
   "ID_INPUT=1",
   "ID_INPUT_TABLET=1",
@@ -32,6 +33,18 @@ const PROBE = [
   "ID_MODEL_ID=037b",
   "ID_SERIAL_SHORT=9JE00M1015644",
   "ID_VENDOR_ID=056a",
+  "== libwacomdb",
+  "/usr/share/libwacom/wacom-one-by-wacom-m-p2.tablet:ModelName=CTL-672",
+  "/usr/share/libwacom/wacom-one-by-wacom-m-p2.tablet:DeviceMatch=usb|056a|037b",
+  "/usr/share/libwacom/wacom-one-by-wacom-m-p2.tablet:Class=Bamboo",
+  "/usr/share/libwacom/wacom-one-by-wacom-m-p2.tablet:IntegratedIn=",
+  "/usr/share/libwacom/wacom-one-by-wacom-m-p2.tablet:Reversible=true",
+  "/usr/share/libwacom/wacom-cintiq-16.tablet:ModelName=DTK-1660",
+  "/usr/share/libwacom/wacom-cintiq-16.tablet:DeviceMatch=usb|056a|0390;bluetooth|056a|0391",
+  "/usr/share/libwacom/wacom-cintiq-16.tablet:IntegratedIn=Display",
+  "/usr/share/libwacom/wacom-cintiq-16.tablet:Reversible=false",
+  "/usr/share/libwacom/wacom-cintiq-16.tablet:Buttons=8",
+  "/usr/share/libwacom/wacom-cintiq-16.tablet:NumRings=1",
   "== libwacom",
   "devices:",
   "  - name: 'One by Wacom (medium)'",
@@ -108,6 +121,12 @@ test("the probe parser finds the tablet, its model, its size, and Hyprland's nam
   assert.equal(tablet.widthMm, 216)
   assert.equal(tablet.heightMm, 135)
   assert.equal(tablet.hasPad, true)
+  assert.equal(tablet.known, true)
+  assert.equal(tablet.display, false)
+  assert.equal(tablet.rotatable, false)
+  assert.equal(tablet.reversible, true)
+  assert.equal(Model.rotationSupportLabel(tablet), "180° only, via Left-handed (external tablet)")
+  assert.equal(Model.padLabel(tablet), "present (not managed here)")
   assert.equal(Model.stylusSummary(tablet), "pressure · tilt · 2 buttons · eraser")
   assert.equal(Model.tabletSizeLabel(tablet), "216 × 135 mm")
   assert.deepEqual(probe.hyprlandNames, ["wacom-one-by-wacom-m-pen"])
@@ -131,6 +150,41 @@ test("a tablet without a libwacom entry or a serial still gets a stable identity
   assert.equal(tablets[0].label, "XP-PEN Deco 01 Pen")
   assert.equal(tablets[0].present, false)
   assert.equal(Model.tabletSizeLabel(tablets[0]), "size unknown")
+})
+
+test("what libinput allows is read from libwacom the way libinput reads it", () => {
+  const db = Model.parseLibwacomDb(Model.splitProbeSections(PROBE).libwacomdb)
+  const cintiq = { name: "Wacom Cintiq 16 Pen", uniq: "", properties: 0x03, props: { ID_INPUT_TABLET: "1", ID_BUS: "usb", ID_VENDOR_ID: "056a", ID_MODEL_ID: "0390", DEVNAME: "/dev/input/event5" } }
+  const unknown = { name: "Mystery Pen", uniq: "", properties: 0x01, props: { ID_INPUT_TABLET: "1", ID_BUS: "usb", ID_VENDOR_ID: "1234", ID_MODEL_ID: "5678", DEVNAME: "/dev/input/event6" } }
+  const tablets = Model.discoverTablets([cintiq, unknown], [], [], db)
+  const display = tablets.find(t => t.kernelName === "Wacom Cintiq 16 Pen")
+  assert.equal(display.display, true)
+  assert.equal(display.rotatable, true)
+  assert.equal(display.reversible, false)
+  assert.equal(display.padButtons, 8)
+  assert.equal(Model.padLabel(display), "8 buttons, 1 ring (not managed here)")
+  assert.equal(Model.rotationSupportLabel(display), "any angle (display tablet)")
+  // A bluetooth match in the same entry resolves too.
+  assert.equal(Model.libwacomEntryFor(db, "bluetooth", "056a", "0391").modelName, "DTK-1660")
+  const mystery = tablets.find(t => t.kernelName === "Mystery Pen")
+  assert.equal(mystery.known, false)
+  assert.equal(mystery.rotatable, true)
+  assert.equal(mystery.reversible, true)
+})
+
+test("a rotation the tablet cannot do is neither sent to Hyprland nor remembered", () => {
+  const profile = profileFor({ transform: 1, rotatable: false, activeArea: { mode: "custom", x: 0, y: 0, w: 500, h: 500 } })
+  assert.equal(Model.effectiveTransform(profile), 0)
+  assert.deepEqual(Model.effectiveTabletSize(profile), { width: 216, height: 135 })
+  assert.match(Model.deviceStatement(profile, MONITORS).lua, /transform = 0,/)
+  assert.equal(Model.mappingSummary(profile, MONITORS), "all screens")
+  const merged = Model.mergeDiscovered(Model.normalizeDocument({ tablets: [profileFor({ transform: 3 })] }), [{
+    id: "usb:056a:037b:9JE00M1015644", label: "One by Wacom (medium)", kernelName: "Wacom One by Wacom M Pen", widthMm: 216, heightMm: 135, rotatable: false, reversible: true
+  }])
+  assert.equal(merged.document.tablets[0].transform, 0)
+  assert.equal(merged.document.tablets[0].rotatable, false)
+  const flipped = Model.deviceStatement(profileFor({ leftHanded: true, reversible: false }), MONITORS)
+  assert.match(flipped.lua, /left_handed = false/)
 })
 
 test("touch surfaces on display tablets are not mistaken for pens", () => {
@@ -282,7 +336,9 @@ test("newly seen tablets get a default profile and known ones refresh their size
   first.document.tablets[0].widthMm = 1
   const second = Model.mergeDiscovered(first.document, probe.tablets)
   assert.equal(second.added, 0)
+  assert.equal(second.changed, true)
   assert.equal(second.document.tablets[0].widthMm, 216)
+  assert.equal(Model.mergeDiscovered(second.document, probe.tablets).changed, false)
 })
 
 test("saving goes through argv with an atomic rename", () => {

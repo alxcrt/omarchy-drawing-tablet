@@ -60,6 +60,10 @@ Panel {
   readonly property bool customRegion: !!root.profile && root.profile.region.mode === "custom"
   readonly property bool customArea: !!root.profile && root.profile.activeArea.mode === "custom"
   readonly property var tabletSize: Model.effectiveTabletSize(root.profile)
+  // libinput decides what a tablet can do; the panel only offers what will
+  // actually happen under the pen.
+  readonly property bool rotationAvailable: !!root.profile && root.profile.rotatable !== false
+  readonly property bool leftHandedAvailable: !!root.profile && root.profile.reversible !== false
   readonly property string connectionLabel: root.profile
     ? (root.selectedConnected ? "Connected · " + Model.mappingSummary(root.profile, engine.monitors) : "Not connected")
     : (engine.probed ? "No tablet connected" : "Looking for tablets…")
@@ -90,7 +94,10 @@ Panel {
     var rows = []
     if (root.profile) {
       if (root.tabletOptions.length > 1) rows.push("tablet")
-      rows.push("output", "region", "area", "transform", "leftHanded", "relative", "enabled")
+      rows.push("output", "region", "area")
+      if (root.rotationAvailable) rows.push("transform")
+      if (root.leftHandedAvailable) rows.push("leftHanded")
+      rows.push("relative", "enabled")
     }
     for (var i = 0; i < root.actionRows.length; i++) rows.push("action:" + root.actionRows[i].id)
     return rows
@@ -1053,7 +1060,8 @@ Panel {
                     InfoRow { label: "Device"; value: root.profile ? String(root.profile.kernelName || "") : "" }
                     InfoRow { label: "Hyprland name"; value: root.profile ? Model.hyprlandDeviceName(root.profile.kernelName) : "" }
                     InfoRow { label: "Pen"; value: root.liveTablet ? (Model.stylusSummary(root.liveTablet) || "—") : "—" }
-                    InfoRow { label: "Buttons"; value: root.liveTablet ? (root.liveTablet.hasPad ? "pad present (not managed here)" : "none") : "—" }
+                    InfoRow { label: "Pad"; value: root.liveTablet ? Model.padLabel(root.liveTablet) : "—" }
+                    InfoRow { label: "Rotation"; value: root.liveTablet ? Model.rotationSupportLabel(root.liveTablet) : "—" }
                     InfoRow { label: "Identity"; value: root.profile ? String(root.profile.id || "") : "" }
                     InfoRow { label: "Status"; value: root.selectedConnected ? "connected" : "not connected"; valueAccent: root.selectedConnected }
                   }
@@ -1310,6 +1318,7 @@ Panel {
 
     PanelDropdown {
       id: transformDropdown
+      visible: root.rotationAvailable
       popupParent: keyCatcher
       ownerOpen: controls.ownerOpen
       width: controls.cellWidth
@@ -1329,9 +1338,12 @@ Panel {
     spacing: Style.space(6)
 
     Toggle {
+      visible: root.leftHandedAvailable
       width: parent.width
       label: "Left-handed"
-      description: "Turn the tablet 180° so the cable points the other way"
+      description: root.rotationAvailable
+        ? "Turn the tablet 180° so the cable points the other way"
+        : "Turn the tablet 180° so the cable points the other way. The only rotation an external tablet supports."
       checked: !!root.profile && root.profile.leftHanded === true
       enabled: !!root.profile
       hasCursor: root.hasCursor("leftHanded")

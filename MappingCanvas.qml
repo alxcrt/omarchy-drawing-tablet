@@ -132,7 +132,9 @@ BorderSurface {
 
       Text {
         textFormat: Text.PlainText
-        anchors.centerIn: parent
+        anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        anchors.margins: Style.space(4)
         visible: root.regionRect && root.regionRect.follows
         text: "follows focus"
         color: root.accent

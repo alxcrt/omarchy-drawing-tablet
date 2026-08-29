@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.alxcrt.drawing-tablet",
   "name": "Drawing Tablet for Omarchy",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "author": "Alexandru Cretu",
   "license": "MIT",
   "description": "Map your pen tablet to the right screen and keep it there. Pick the target screen, keep the tablet's proportions or draw a custom region, flip it for left-handed use, rotate a display tablet, switch between pen and mouse mode, limit the pen's pressure range, and hide the cursor while you draw. Profiles follow the tablet by make, model and serial, and a small background service re-applies them on hotplug and after every Hyprland reload.",

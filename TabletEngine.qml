@@ -87,7 +87,7 @@ Item {
       "sh"]
     for (var i = 0; i < plan.statements.length; i++) command.push(plan.statements[i].lua)
     root.applying = true
-    root.appliedCount = plan.statements.length - 1
+    root.appliedCount = plan.statements.filter(function(statement) { return statement.id !== "" }).length
     applyProcess.command = command
     applyProcess.running = true
   }

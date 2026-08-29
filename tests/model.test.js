@@ -10,6 +10,9 @@ const PROBE = [
   "UNIQ=",
   "PHYS=usb-0000:00:14.0-3.4.4/input0",
   "PROPS=1",
+  "BUSTYPE=0003",
+  "VENDOR=056a",
+  "PRODUCT=037b",
   "DEVNAME=/dev/input/event18",
   "ID_INPUT=1",
   "ID_INPUT_TABLET=1",
@@ -121,6 +124,10 @@ test("the probe parser finds the tablet, its model, its size, and Hyprland's nam
   assert.equal(tablet.widthMm, 216)
   assert.equal(tablet.heightMm, 135)
   assert.equal(tablet.hasPad, true)
+  assert.equal(tablet.penButtons, 2)
+  assert.equal(tablet.eraserType, "invert")
+  assert.equal(Model.penLabel(tablet), "2 buttons · eraser on the back end")
+  assert.equal(Model.anyEraserButton([tablet]), false)
   assert.equal(tablet.known, true)
   assert.equal(tablet.display, false)
   assert.equal(tablet.rotatable, false)
@@ -219,7 +226,7 @@ test("Lua strings are escaped and control characters are refused", () => {
 test("a default profile mirrors Hyprland's defaults so applying it changes nothing", () => {
   const statement = Model.deviceStatement(profileFor(), MONITORS)
   assert.equal(statement.lua,
-    'hl.device({ name = "wacom-one-by-wacom-m-pen", enabled = true, output = "", transform = 0, left_handed = false, relative_input = false, absolute_region_position = false, region_position = {0, 0}, region_size = {0, 0}, active_area_position = {0, 0}, active_area_size = {0, 0} })')
+    'hl.device({ name = "wacom-one-by-wacom-m-pen", output = "", transform = 0, left_handed = false, relative_input = false, absolute_region_position = false, region_position = {0, 0}, region_size = {0, 0}, active_area_position = {0, 0}, active_area_size = {0, 0} })')
   assert.deepEqual(statement.notes, [])
 })
 
@@ -288,12 +295,44 @@ test("a screen that is not connected falls back to all screens with a note", () 
   assert.deepEqual(statement.notes, ["One by Wacom (medium): LG Electronics LG ULTRAGEAR is not connected, so it is mapped to all screens for now"])
 })
 
-test("a disabled tablet only gets enabled = false", () => {
+test("Hyprland is never asked to enable or disable a tablet, which it would ignore", () => {
   const statement = Model.deviceStatement(profileFor({ enabled: false }), MONITORS)
-  assert.equal(statement.lua, 'hl.device({ name = "wacom-one-by-wacom-m-pen", enabled = false })')
+  assert.doesNotMatch(statement.lua, /enabled/)
+  assert.equal(Model.normalizeProfile({ enabled: false }, null).enabled, undefined)
 })
 
-test("the apply plan only speaks to tablets Hyprland currently lists and ends with the stylus", () => {
+test("identity comes from the kernel's ids, so Bluetooth and virtual tablets are stable too", () => {
+  const bluetooth = { name: "Wacom Intuos BT M Pen", uniq: "aa:bb:cc:dd:ee:ff", bustype: 0x05, vendor: "056a", product: "0378", properties: 0x01,
+    props: { ID_INPUT_TABLET: "1", ID_BUS: "bluetooth", DEVNAME: "/dev/input/event9" } }
+  assert.equal(Model.tabletIdentity(bluetooth), "bluetooth:056a:0378:aa:bb:cc:dd:ee:ff")
+  const otd = { name: "OpenTabletDriver Virtual Artist Tablet", uniq: "", bustype: 0x06, vendor: "0", product: "0", properties: 0x03,
+    props: { ID_INPUT_TABLET: "1", DEVNAME: "/dev/input/event30", ID_INPUT_WIDTH_MM: "152", ID_INPUT_HEIGHT_MM: "95" } }
+  assert.equal(Model.tabletIdentity(otd), "virtual:opentabletdriver-virtual-artist-tablet")
+  const ignored = { name: "Wacom Intuos S Pen", uniq: "", bustype: 0x03, vendor: "056a", product: "0374", properties: 0x01,
+    props: { ID_INPUT_TABLET: "1", LIBINPUT_IGNORE_DEVICE: "1", DEVNAME: "/dev/input/event8" } }
+  const tablets = Model.discoverTablets([bluetooth, otd, ignored], [], ["opentabletdriver-virtual-artist-tablet"], {})
+  assert.deepEqual(tablets.map(t => t.id).sort(), ["bluetooth:056a:0378:aa:bb:cc:dd:ee:ff", "virtual:opentabletdriver-virtual-artist-tablet"])
+  const virtual = tablets.find(t => t.bus === "virtual")
+  // OpenTabletDriver's virtual tablet is INPUT_PROP_DIRECT and unknown to
+  // libwacom, so libinput lets it rotate and flip.
+  assert.equal(virtual.display, true)
+  assert.equal(virtual.rotatable, true)
+  assert.equal(virtual.reversible, true)
+  assert.equal(virtual.present, true)
+  assert.equal(Model.busName(0x18, ""), "i2c")
+})
+
+test("a digitizer built into the laptop is mapped to the laptop panel by default", () => {
+  const builtin = { id: "i2c:056a:4877", label: "Wacom HID 4877", kernelName: "Wacom HID 4877 Pen", widthMm: 300, heightMm: 190,
+    display: true, integratedIn: "Display;System", rotatable: true, reversible: false }
+  const merged = Model.mergeDiscovered(Model.parseDocument(""), [builtin], MONITORS)
+  assert.deepEqual(merged.document.tablets[0].output, { mode: "monitor", name: "eDP-1", description: "AU Optronics 0x37AC" })
+  const external = { id: "usb:056a:0390", label: "Cintiq 16", kernelName: "Wacom Cintiq 16 Pen", widthMm: 344, heightMm: 194,
+    display: true, integratedIn: "Display", rotatable: true, reversible: false }
+  assert.equal(Model.mergeDiscovered(Model.parseDocument(""), [external], MONITORS).document.tablets[0].output.mode, "layout")
+})
+
+test("the apply plan only speaks to tablets Hyprland currently lists and ends with the stylus and cursor", () => {
   const document = Model.normalizeDocument({
     tablets: [
       profileFor(),
@@ -302,17 +341,22 @@ test("the apply plan only speaks to tablets Hyprland currently lists and ends wi
     stylus: { pressureRangeEnabled: true, pressureMin: 0.1, pressureMax: 0.9, eraserButtonMode: 1, eraserButtonOverride: 331 }
   })
   const plan = Model.applyPlan(document, MONITORS, ["wacom-one-by-wacom-m-pen"])
-  assert.equal(plan.statements.length, 2)
+  assert.equal(plan.statements.length, 3)
   assert.equal(plan.statements[0].id, "usb:056a:037b:9JE00M1015644")
   assert.equal(plan.statements[1].lua,
     "hl.config({ input = { tablettool = { pressure_range_min = 0.1, pressure_range_max = 0.9, eraser_button_mode = 1, eraser_button_override = 331 } } })")
+  assert.equal(plan.statements[2].lua, "hl.config({ cursor = { hide_on_tablet = false } })")
+  assert.equal(Model.cursorStatement({ hideCursor: true }), "hl.config({ cursor = { hide_on_tablet = true } })")
 })
 
 test("an unlimited pressure range hands the tool's own range back to Hyprland", () => {
   assert.equal(Model.stylusStatement(Model.defaultStylus()),
     "hl.config({ input = { tablettool = { pressure_range_min = -1, pressure_range_max = -1, eraser_button_mode = 0, eraser_button_override = 0 } } })")
   assert.equal(Model.normalizeStylus({ eraserButtonOverride: 5 }).eraserButtonOverride, 0)
-  assert.equal(Model.normalizeStylus({ pressureMin: 0.8, pressureMax: 0.2 }).pressureMax, 0.8)
+  // libinput wants 0 <= min < max <= 1.
+  assert.deepEqual([Model.normalizeStylus({ pressureMin: 0.8, pressureMax: 0.2 }).pressureMin, Model.normalizeStylus({ pressureMin: 0.8, pressureMax: 0.2 }).pressureMax], [0.8, 0.85])
+  assert.deepEqual([Model.normalizeStylus({ pressureMin: 1, pressureMax: 1 }).pressureMin, Model.normalizeStylus({ pressureMin: 1, pressureMax: 1 }).pressureMax], [0.95, 1])
+  assert.equal(Model.normalizeStylus({ pressureMin: 0, pressureMax: 0 }).pressureMax, 0.05)
 })
 
 test("documents round-trip, tolerate garbage, and refuse duplicates", () => {
@@ -371,7 +415,6 @@ test("the summary reads like a sentence fragment for the tooltip", () => {
     leftHanded: true
   })
   assert.equal(Model.mappingSummary(profile, MONITORS), "DP-1 · tablet proportions · rotate 180° · left-handed")
-  assert.equal(Model.mappingSummary(profileFor({ enabled: false }), MONITORS), "disabled")
   assert.equal(Model.mappingSummary(profileFor({ relativeInput: true }), MONITORS), "all screens · mouse mode")
 })
 

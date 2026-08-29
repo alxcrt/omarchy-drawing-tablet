@@ -29,7 +29,7 @@ BorderSurface {
   readonly property var areaFractions: Model.activeAreaFractions(profile, monitors)
   readonly property var tabletSize: Model.effectiveTabletSize(profile)
   readonly property bool sizeKnown: tabletSize.width > 0 && tabletSize.height > 0
-  readonly property bool tabletDisabled: !!profile && profile.enabled === false
+  readonly property bool tabletDisabled: false
 
   implicitHeight: Style.space(showTablet ? 250 : 160)
   color: framed ? Qt.rgba(foreground.r, foreground.g, foreground.b, 0.025) : "transparent"

@@ -64,6 +64,8 @@ Panel {
   // actually happen under the pen.
   readonly property bool rotationAvailable: !!root.profile && root.profile.rotatable !== false
   readonly property bool leftHandedAvailable: !!root.profile && root.profile.reversible !== false
+  readonly property bool displayTablet: !!root.liveTablet && root.liveTablet.display === true
+  readonly property bool eraserButtonPresent: Model.anyEraserButton(engine.tablets)
   readonly property string connectionLabel: root.profile
     ? (root.selectedConnected ? "Connected · " + Model.mappingSummary(root.profile, engine.monitors) : "Not connected")
     : (engine.probed ? "No tablet connected" : "Looking for tablets…")
@@ -97,7 +99,7 @@ Panel {
       rows.push("output", "region", "area")
       if (root.rotationAvailable) rows.push("transform")
       if (root.leftHandedAvailable) rows.push("leftHanded")
-      rows.push("relative", "enabled")
+      rows.push("relative")
     }
     for (var i = 0; i < root.actionRows.length; i++) rows.push("action:" + root.actionRows[i].id)
     return rows
@@ -128,7 +130,6 @@ Panel {
     else if (row === "transform") compactControls.transformDropdown.toggle()
     else if (row === "leftHanded") root.toggleLeftHanded()
     else if (row === "relative") root.toggleRelative()
-    else if (row === "enabled") root.toggleEnabled()
     else if (row.indexOf("action:") === 0) root.activateRow(row.slice(7))
   }
 
@@ -142,7 +143,6 @@ Panel {
     else if (row === "transform") root.setTransform(Model.cycleOptionValue(Model.transformOptions(), String(root.profile.transform), delta))
     else if (row === "leftHanded") root.toggleLeftHanded()
     else if (row === "relative") root.toggleRelative()
-    else if (row === "enabled") root.toggleEnabled()
   }
 
   function activateRow(id) {
@@ -214,10 +214,6 @@ Panel {
 
   function toggleRelative() {
     if (root.profile) root.editProfile({ relativeInput: !root.profile.relativeInput })
-  }
-
-  function toggleEnabled() {
-    if (root.profile) root.editProfile({ enabled: root.profile.enabled === false })
   }
 
   function nudgeRegion(dx, dy, dw, dh) {
@@ -1023,6 +1019,17 @@ Panel {
 
                   Text {
                     textFormat: Text.PlainText
+                    visible: root.displayTablet && !root.followsFocus && !!root.profile && root.profile.output.mode !== "monitor"
+                    width: parent.width
+                    text: "This tablet is a screen. Map it to its own display so the pen lands under its tip."
+                    color: Color.accent
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    wrapMode: Text.WordWrap
+                  }
+
+                  Text {
+                    textFormat: Text.PlainText
                     visible: root.followsFocus
                     width: parent.width
                     text: "While the tablet follows the focused screen, the region and active area cannot be measured ahead of time, so the whole screen and the whole tablet are used."
@@ -1060,10 +1067,21 @@ Panel {
                     InfoRow { label: "Device"; value: root.profile ? String(root.profile.kernelName || "") : "" }
                     InfoRow { label: "Hyprland name"; value: root.profile ? Model.hyprlandDeviceName(root.profile.kernelName) : "" }
                     InfoRow { label: "Pen"; value: root.liveTablet ? (Model.stylusSummary(root.liveTablet) || "—") : "—" }
+                    InfoRow { label: "Pen buttons"; value: root.liveTablet ? Model.penLabel(root.liveTablet) : "—" }
                     InfoRow { label: "Pad"; value: root.liveTablet ? Model.padLabel(root.liveTablet) : "—" }
                     InfoRow { label: "Rotation"; value: root.liveTablet ? Model.rotationSupportLabel(root.liveTablet) : "—" }
                     InfoRow { label: "Identity"; value: root.profile ? String(root.profile.id || "") : "" }
                     InfoRow { label: "Status"; value: root.selectedConnected ? "connected" : "not connected"; valueAccent: root.selectedConnected }
+                  }
+
+                  Text {
+                    textFormat: Text.PlainText
+                    width: parent.width
+                    text: "Pen buttons and the eraser reach the app under the pen through the Wayland tablet protocol: in apps that support tablets they act as middle and right click unless the app assigns them; apps without tablet support only see the pointer move. Hyprland does not remap them."
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    wrapMode: Text.WordWrap
                   }
 
                   ToggleRows {
@@ -1364,19 +1382,6 @@ Panel {
       onClicked: root.toggleRelative()
     }
 
-    Toggle {
-      width: parent.width
-      label: "Pen input"
-      description: root.profile && root.profile.enabled === false
-        ? "Off: the tablet is switched off in software until you turn this back on"
-        : "On: the pen moves the pointer and draws"
-      checked: !!root.profile && root.profile.enabled !== false
-      enabled: !!root.profile
-      hasCursor: root.hasCursor("enabled")
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-      onClicked: root.toggleEnabled()
-    }
   }
 
   component StylusControls: Column {
@@ -1500,6 +1505,28 @@ Panel {
       }
     }
 
+    Toggle {
+      width: parent.width
+      label: "Hide the cursor while drawing"
+      description: "Hyprland hides the pointer when the pen is in use and shows it again on mouse movement"
+      checked: stylusColumn.live.hideCursor === true
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+      onClicked: root.editStylus({ hideCursor: !stylusColumn.live.hideCursor }, true)
+    }
+
+    Text {
+      textFormat: Text.PlainText
+      width: parent.width
+      text: root.eraserButtonPresent
+        ? "The eraser button on the pen: by default it switches the tip into eraser mode; it can send a pen button instead."
+        : "No connected pen has an eraser button (an eraser on the back end is not one), so the eraser settings below only matter for pens that do."
+      color: root.dim
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+      wrapMode: Text.WordWrap
+    }
+
     Grid {
       width: parent.width
       columns: 2
@@ -1511,7 +1538,7 @@ Panel {
         popupParent: keyCatcher
         ownerOpen: root.opened && root.expanded
         width: parent.cellWidth
-        label: "ERASER END"
+        label: "ERASER BUTTON"
         options: Model.eraserModeOptions()
         value: String(stylusColumn.live.eraserButtonMode)
         foreground: root.foreground
@@ -1524,7 +1551,7 @@ Panel {
         popupParent: keyCatcher
         ownerOpen: root.opened && root.expanded
         width: parent.cellWidth
-        label: "ERASER SENDS"
+        label: "ERASER BUTTON SENDS"
         options: Model.eraserOverrideOptions()
         value: String(stylusColumn.live.eraserButtonOverride)
         enabled: Number(stylusColumn.live.eraserButtonMode) === 1

@@ -70,3 +70,7 @@ Hyprland offers `zwlr_virtual_pointer_manager_v1` (v2) and `zwp_virtual_keyboard
 ## Right clicks crash the shell on Qt 6.11 (2026-08-29)
 
 Quickshell 0.3.1 on Qt 6.11.2 segfaults in `QQuickDeliveryAgentPrivate::contextMenuTargets` → `QQuickItem::mapToScene` whenever a right click (a `QContextMenuEvent`) reaches one of its windows: the `omarchy-background` wallpaper layer, the bar, any panel. Fourteen crashes in one afternoon, all from a pen button mapped to right click while the pen hovered over the desktop, plus the end-to-end test clicking there. `omarchy-shell` restarts Quickshell after each. The helper now asks `hyprctl -j cursorpos/clients/monitors` before a right click and sends it only when the pointer is inside a mapped window on the workspace its monitor shows. Left and middle clicks do not raise context-menu events and are unaffected. Upstream: https://github.com/quickshell-mirror/quickshell/issues/900 (open).
+
+## Scroll action (2026-08-29, v1.2.1)
+
+A "scroll" pen-button action drives `zwlr_virtual_pointer_v1.axis` (finger source) from the pen's `ABS_Y` deltas while the button is held: content follows the pen (drag up -> page goes down), one axis event per SYN frame, `axis_stop` on release, `SCROLL_GAIN` px per pen unit. Verified end to end — a virtual scroll over the Excalidraw Chromium window moved the canvas (grim before/after AE = 72684 px), confirming Hyprland delivers virtual-pointer axis to clients. The helper reads `EV_ABS` now, not only `EV_KEY`.

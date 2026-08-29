@@ -16,10 +16,11 @@ needed. The click lands where the pen already put the cursor.
 
 Plan: {"tablets": [{"node": "/dev/input/by-id/...", "label": "...",
         "actions": {"button1": "right", "button2": "middle", "eraser": "left"}}]}
-Actions: "app" (leave to the app), "left", "middle", "right", or "space"
+Actions: "app" (leave to the app), "left", "middle", "right", "space"
 (hold the Space key while the pen button is held: the pan gesture of
 Excalidraw, Krita, GIMP, Inkscape and most other drawing apps, without the
-primary-selection paste a middle click causes in browsers).
+primary-selection paste a middle click causes in browsers), or "scroll"
+(hold the button and move the pen to scroll the page, in any app).
 Only standard library; nothing to install.
 """
 import array, ctypes, json, os, select, socket, struct, subprocess, sys, time
@@ -29,9 +30,15 @@ SYN_REPORT = 0
 BTN_LEFT, BTN_RIGHT, BTN_MIDDLE = 0x110, 0x111, 0x112
 BTN_TOOL_PEN, BTN_TOOL_RUBBER, BTN_TOUCH, BTN_STYLUS, BTN_STYLUS2, BTN_STYLUS3 = 0x140, 0x141, 0x14a, 0x14b, 0x14c, 0x149
 KEY_SPACE = 0x39
+ABS_X, ABS_Y = 0x00, 0x01
+# How much page scroll one unit of pen travel is worth. The pen reports
+# ~100 units per millimetre, so ~0.55 px per unit turns a couple of
+# centimetres of drag into most of a screen.
+SCROLL_GAIN = 0.55
+AXIS_VERTICAL = 0
 
 # action name -> (device, evdev code)
-ACTIONS = {"left": ("pointer", BTN_LEFT), "right": ("pointer", BTN_RIGHT), "middle": ("pointer", BTN_MIDDLE), "space": ("keyboard", KEY_SPACE)}
+ACTIONS = {"left": ("pointer", BTN_LEFT), "right": ("pointer", BTN_RIGHT), "middle": ("pointer", BTN_MIDDLE), "space": ("keyboard", KEY_SPACE), "scroll": ("scroll", 0)}
 EVENT = struct.Struct("llHHi")
 NAMES = {BTN_LEFT: "left", BTN_RIGHT: "right", BTN_MIDDLE: "middle", KEY_SPACE: "space"}
 
@@ -166,11 +173,24 @@ class Wayland:
                 return
             # zwlr_virtual_pointer_v1.button(time, button, state) then frame()
             self.send(POINTER, 2, struct.pack("<III", self.now(), code, state))
-            self.send(POINTER, 4)
+            self.send(POINTER, 4)  # frame
+        elif device == "scroll":
+            return  # scrolling is driven by pen motion, not button state
         else:
             self.ensure_keyboard()
             # zwp_virtual_keyboard_v1.key(time, key, state)
             self.send(KEYBOARD, 1, struct.pack("<III", self.now(), code, state))
+
+    def scroll(self, value_fixed):
+        # zwlr_virtual_pointer_v1: axis_source(finger), axis(vertical, value), frame
+        self.send(POINTER, 5, struct.pack("<I", 1))  # axis_source = finger
+        self.send(POINTER, 3, struct.pack("<IIi", self.now(), AXIS_VERTICAL, value_fixed))
+        self.send(POINTER, 4)  # frame
+
+    def scroll_stop(self):
+        # axis_stop(time, axis), frame — ends the kinetic gesture cleanly.
+        self.send(POINTER, 6, struct.pack("<II", self.now(), AXIS_VERTICAL))
+        self.send(POINTER, 4)
 
     def close(self):
         self.sock.close()
@@ -184,6 +204,12 @@ class Recorder:
 
     def press(self, action, down):
         self.sent.append((action[1], 1 if down else 0))
+
+    def scroll(self, value_fixed):
+        self.sent.append(("scroll", value_fixed))
+
+    def scroll_stop(self):
+        self.sent.append(("scroll_stop", 0))
 
     def poll(self):
         pass
@@ -252,6 +278,8 @@ class Tablet:
         self.fd = None
         self.eraser_near = False
         self.pressed = {}
+        self.cur_y = None
+        self.last_y = None
 
     def wanted(self):
         return any((self.button1, self.button2, self.eraser))
@@ -266,7 +294,24 @@ class Tablet:
             os.close(self.fd)
             self.fd = None
 
-    def handle(self, out, code, value):
+    @property
+    def scrolling(self):
+        return any(a[0] == "scroll" for a in self.pressed.values())
+
+    def feed(self, out, typ, code, value):
+        if typ == EV_KEY:
+            self.handle_key(out, code, value)
+        elif typ == EV_ABS:
+            if code == ABS_Y:
+                self.cur_y = value
+        elif typ == EV_SYN and code == SYN_REPORT and self.scrolling and self.cur_y is not None:
+            # Content follows the pen: dragging up reveals what is below, the
+            # touchscreen-style pan. One axis event per report frame.
+            if self.last_y is not None and self.cur_y != self.last_y:
+                out.scroll(int(-(self.cur_y - self.last_y) * SCROLL_GAIN * 256))
+            self.last_y = self.cur_y
+
+    def handle_key(self, out, code, value):
         # A press maps to an action; the release always goes to whatever
         # was pressed, so a plan change mid-press cannot leave a button stuck.
         if code == BTN_TOOL_RUBBER:
@@ -286,13 +331,21 @@ class Tablet:
             if action is None or key in self.pressed:
                 return
             self.pressed[key] = action
-            out.press(action, True)
+            if action[0] == "scroll":
+                self.last_y = self.cur_y  # anchor here; the next frame is the delta
+            else:
+                out.press(action, True)
         else:
             self.release(out, key)
 
     def release(self, out, key):
         action = self.pressed.pop(key, None)
-        if action is not None:
+        if action is None:
+            return
+        if action[0] == "scroll":
+            if not self.scrolling:
+                out.scroll_stop()
+        else:
             out.press(action, False)
 
     def release_all(self, out):
@@ -350,8 +403,7 @@ def pump(tablets, out, stop=None):
                     continue
                 for offset in range(0, len(data) - EVENT.size + 1, EVENT.size):
                     _, _, typ, code, value = EVENT.unpack_from(data, offset)
-                    if typ == EV_KEY:
-                        tablet.handle(out, code, value)
+                    tablet.feed(out, typ, code, value)
     finally:
         for tablet in by_fd.values():
             tablet.release_all(out)
@@ -446,8 +498,13 @@ def self_test():
         worker.start()
         time.sleep(0.5)
 
-        def press(code, value):
+        def key(code, value):
             emit(tablet_fd, EV_KEY, code, value)
+            emit(tablet_fd, EV_SYN, SYN_REPORT, 0)
+            time.sleep(0.05)
+
+        def move(y):
+            emit(tablet_fd, EV_ABS, ABS_Y, y)
             emit(tablet_fd, EV_SYN, SYN_REPORT, 0)
             time.sleep(0.05)
 
@@ -455,17 +512,34 @@ def self_test():
         # then the eraser end touches and lifts.
         for code, value in [(BTN_TOOL_PEN, 1), (BTN_STYLUS, 1), (BTN_STYLUS, 0), (BTN_STYLUS2, 1), (BTN_STYLUS2, 0),
                             (BTN_TOOL_PEN, 0), (BTN_TOOL_RUBBER, 1), (BTN_TOUCH, 1), (BTN_TOUCH, 0), (BTN_TOOL_RUBBER, 0)]:
-            press(code, value)
+            key(code, value)
         expected = [(BTN_RIGHT, 1), (BTN_RIGHT, 0), (KEY_SPACE, 1), (KEY_SPACE, 0), (BTN_LEFT, 1), (BTN_LEFT, 0)]
         deadline = time.time() + 3
         while time.time() < deadline and len(out.sent) < len(expected):
             time.sleep(0.05)
+        if out.sent != expected:
+            finished.set(); worker.join(1)
+            print(f"self-test FAILED: buttons: expected {[(NAMES[c], v) for c, v in expected]}, got {[(NAMES.get(c, hex(c)), v) for c, v in out.sent]}", file=sys.stderr)
+            return 1
+
+        # Scroll: hold a scroll-mapped button and drag the pen up, then down.
+        tablet.button2 = ACTIONS["scroll"]
+        out.sent.clear()
+        move(8000)                 # anchor
+        key(BTN_STYLUS2, 1)        # start scrolling
+        move(7000); move(6000)     # pen up -> scroll down (positive)
+        move(7000)                 # pen down -> scroll up (negative)
+        key(BTN_STYLUS2, 0)        # stop
+        deadline = time.time() + 2
+        while time.time() < deadline and not any(e[0] == "scroll_stop" for e in out.sent):
+            time.sleep(0.05)
         finished.set()
         worker.join(2)
-        if out.sent != expected:
-            print(f"self-test FAILED: expected {[(NAMES[c], v) for c, v in expected]}, got {[(NAMES.get(c, hex(c)), v) for c, v in out.sent]}", file=sys.stderr)
+        scrolls = [v for kind, v in out.sent if kind == "scroll"]
+        if not (len(scrolls) >= 3 and scrolls[0] > 0 and scrolls[1] > 0 and scrolls[-1] < 0 and out.sent[-1][0] == "scroll_stop"):
+            print(f"self-test FAILED: scroll: got {out.sent}", file=sys.stderr)
             return 1
-        print("self-test ok: button 1 -> right click, button 2 -> hold Space, eraser -> left click")
+        print("self-test ok: button 1 -> right click, button 2 -> hold Space, eraser -> left click, scroll drag -> axis events")
         return 0
     finally:
         fcntl.ioctl(tablet_fd, UI_DEV_DESTROY)

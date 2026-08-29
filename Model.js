@@ -634,7 +634,7 @@ function defaultProfile(tablet) {
   }
 }
 
-var BUTTON_ACTIONS = ["app", "left", "middle", "right", "space"]
+var BUTTON_ACTIONS = ["app", "left", "middle", "right", "space", "scroll"]
 
 function normalizeButtons(raw) {
   var item = raw && typeof raw === "object" ? raw : {}
@@ -1093,7 +1093,8 @@ function buttonActionOptions() {
     { value: "left", label: "Left click" },
     { value: "middle", label: "Middle click" },
     { value: "right", label: "Right click" },
-    { value: "space", label: "Hold Space (pan in drawing apps)" }
+    { value: "space", label: "Hold Space (pan in drawing apps)" },
+    { value: "scroll", label: "Scroll the page (drag)" }
   ]
 }
 
@@ -1122,7 +1123,7 @@ function penButtonsCommand(pluginDir, plan) {
 function penButtonSummary(profile) {
   var buttons = normalizeButtons((profile || {}).buttons)
   var parts = []
-  var labels = { left: "left click", middle: "middle click", right: "right click", space: "hold Space" }
+  var labels = { left: "left click", middle: "middle click", right: "right click", space: "hold Space", scroll: "scroll the page" }
   if (buttons.button1 !== "app") parts.push("button 1 → " + labels[buttons.button1])
   if (buttons.button2 !== "app") parts.push("button 2 → " + labels[buttons.button2])
   if (buttons.eraser !== "app") parts.push("eraser → " + labels[buttons.eraser])

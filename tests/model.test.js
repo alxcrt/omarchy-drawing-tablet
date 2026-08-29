@@ -494,6 +494,9 @@ test("pen buttons become a plan for the helper only when something is mapped and
   const panning = Model.upsertProfile(document, profileFor({ buttons: { button1: "space", button2: "app", eraser: "app" } }))
   assert.equal(Model.penButtonSummary(panning.tablets[0]), "button 1 → hold Space")
   assert.ok(Model.buttonActionOptions().some(o => o.value === "space"))
+  assert.ok(Model.buttonActionOptions().some(o => o.value === "scroll"))
+  const scrolled = Model.upsertProfile(document, profileFor({ buttons: { button1: "scroll", button2: "app", eraser: "app" } }))
+  assert.equal(Model.penButtonSummary(scrolled.tablets[0]), "button 1 → scroll the page")
   const plan = Model.penButtonPlan(mapped, probe.tablets)
   assert.deepEqual(plan, { tablets: [{ node: "/dev/input/event18", label: "One by Wacom (medium)", actions: { button1: "right", button2: "middle", eraser: "app" } }] })
   // Unplugged: nothing for the helper to read.

@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.alxcrt.tablet",
+  "name": "Drawing Tablet for Omarchy",
+  "version": "1.0.0",
+  "author": "Alexandru Cretu",
+  "license": "MIT",
+  "description": "Map your pen tablet to the right screen and keep it there. Pick the target screen, keep the tablet's proportions or draw a custom region, rotate it, flip it for left-handed use, switch between pen and mouse mode, and limit the pen's pressure range. Profiles follow the tablet by make, model and serial, and a small background service re-applies them on hotplug and after every Hyprland reload.",
+  "kinds": [
+    "bar-widget",
+    "service"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "service": "Service.qml"
+  },
+  "barWidget": {
+    "displayName": "Drawing Tablet",
+    "description": "Pen tablet mapping that survives hotplug and Hyprland reloads.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "hideWhenDisconnected": false
+    },
+    "schema": [
+      {
+        "key": "hideWhenDisconnected",
+        "type": "boolean",
+        "label": "Hide the icon when no tablet is connected",
+        "defaultValue": false
+      }
+    ]
+  }
+}

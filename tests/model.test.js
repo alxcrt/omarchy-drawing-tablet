@@ -453,6 +453,10 @@ test("the plugin update check is throttled, refuses symlinked stamps, and update
   assert.match(command[2], /\[ ! -L "\$stamp" \] \|\| exit 6/)
   assert.match(command[2], /exit 10/)
   assert.match(command[2], /find "\$stamp" -newermt "-\$2 hours"/)
+  // touch --no-dereference does not create a missing file, which silently
+  // broke the check on every fresh install.
+  assert.doesNotMatch(command[2], /touch/)
+  assert.match(command[2], /\(umask 077; : > "\$stamp"\)/)
   assert.deepEqual(Model.pluginUpdateCommand("io.github.alxcrt.drawing-tablet"), ["omarchy", "plugin", "update", "io.github.alxcrt.drawing-tablet", "--yes"])
   assert.equal(Model.pluginUpdated("Updated io.github.alxcrt.drawing-tablet."), true)
   assert.equal(Model.pluginUpdated("io.github.alxcrt.drawing-tablet is up to date."), false)

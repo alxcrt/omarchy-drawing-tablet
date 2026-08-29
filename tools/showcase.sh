@@ -108,10 +108,12 @@ magick -size 1600x900 "xc:$bg" \
   "$out/social-card.png"
 
 # A second card for the editor itself, wide, with a one-line caption.
+# The editor is placed at its native size so its text stays crisp; the
+# caption sits in the band below it.
 magick -size 1600x900 "xc:$bg" \
-  \( "$out/expanded.png" -resize 1440x \( +clone -background black -shadow 60x24+0+16 \) +swap -background none -layers merge +repage \) \
-  -gravity north -geometry +0+70 -composite \
-  -font "$font_regular" -fill "$dim" -pointsize 22 -gravity south -annotate +0+56 "The expanded editor: drag the region on the preview, set custom areas in percent or millimetres, tune the stylus." \
+  \( "$out/expanded.png" \( +clone -background black -shadow 60x24+0+16 \) +swap -background none -layers merge +repage \) \
+  -gravity north -geometry +0+60 -composite \
+  -font "$font_regular" -fill "$dim" -pointsize 20 -gravity south -annotate +0+58 "The expanded editor: drag the region on the preview, set custom areas, tune the stylus." \
   "$out/social-card-editor.png"
 
 echo "wrote $out/compact.png $out/expanded.png $out/bar.png $out/social-card.png $out/social-card-editor.png and preview.png"

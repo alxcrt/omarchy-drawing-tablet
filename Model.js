@@ -81,8 +81,6 @@ function probeScript() {
     'command -v libwacom-list-local-devices >/dev/null 2>&1 && libwacom-list-local-devices --format=yaml 2>/dev/null; ' +
     'printf "== libwacomdb\\n"; ' +
     'grep -H -iE "^(DeviceMatch|Reversible|IntegratedIn|Buttons|NumStrips|NumRings|Class|ModelName)=" /usr/share/libwacom/*.tablet /etc/libwacom/*.tablet 2>/dev/null; ' +
-    'printf "== uinput\\n"; ' +
-    '[ -w /dev/uinput ] && echo writable || echo unavailable; ' +
     'printf "== hyprland\\n"; ' +
     'hyprctl -j devices 2>/dev/null; ' +
     'printf "\\n== monitors\\n"; ' +
@@ -575,8 +573,7 @@ function parseProbe(text) {
   return {
     tablets: discoverTablets(records, libwacom, hyprlandNames, libwacomDb),
     monitors: parseMonitors(sections.monitors),
-    hyprlandNames: hyprlandNames,
-    uinput: String(sections.uinput || "").trim() === "writable"
+    hyprlandNames: hyprlandNames
   }
 }
 
@@ -1132,17 +1129,6 @@ function penButtonSummary(profile) {
   return parts.length ? parts.join(" · ") : "apps decide"
 }
 
-// The virtual mouse needs /dev/uinput. systemd's uaccess tag hands the node
-// to whoever is logged in at the seat; this rule asks for it once, through
-// Omarchy's presented terminal so sudo can prompt.
-function uinputRuleCommand() {
-  var rule = 'KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"'
-  var script = "set -e; printf '%s\\n' '" + rule + "' | sudo tee /etc/udev/rules.d/70-omarchy-drawing-tablet-uinput.rules >/dev/null"
-    + " && sudo udevadm control --reload && sudo udevadm trigger --name-match=uinput"
-    + " && echo 'Virtual input allowed. Reopen the panel.'"
-  return ["omarchy", "launch", "floating", "terminal", "with", "presentation", script]
-}
-
 // ---------------------------------------------------------------- labels
 
 function monitorLabel(box, compact) {
@@ -1565,7 +1551,6 @@ if (typeof module !== "undefined") {
     penButtonPlan: penButtonPlan,
     penButtonsCommand: penButtonsCommand,
     penButtonSummary: penButtonSummary,
-    uinputRuleCommand: uinputRuleCommand,
     outputValue: outputValue,
     withOutputValue: withOutputValue,
     regionOptions: regionOptions,

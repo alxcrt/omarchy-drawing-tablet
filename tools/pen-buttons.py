@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-"""Turn pen buttons into real mouse buttons, system wide.
+"""Turn pen buttons into real mouse buttons or a held key, system wide.
 
 Hyprland hands pen buttons only to apps that speak the Wayland tablet
 protocol; everything else sees the pointer move and nothing more. This helper
 reads the tablet's evdev node (read-only, never grabbed, so libinput keeps
-it) and presses the configured mouse button on a virtual mouse when a pen
-button or the eraser end is used. The click lands where the pen already put
-the cursor.
+it) and, when a pen button or the eraser end is used, presses the configured
+mouse button on a virtual pointer or holds a key on a virtual keyboard. Both
+are Wayland objects offered by Hyprland itself (zwlr_virtual_pointer_v1 and
+zwp_virtual_keyboard_v1), so no device node, udev rule or privilege is
+needed. The click lands where the pen already put the cursor.
 
     tools/pen-buttons.py '<json>'      run with a plan (see penButtonPlan in Model.js)
-    tools/pen-buttons.py --check       report whether /dev/uinput can be opened
-    tools/pen-buttons.py --self-test   press a fake pen's buttons and check the clicks come out
+    tools/pen-buttons.py --check       report whether the compositor offers virtual input
+    tools/pen-buttons.py --self-test   press a fake pen's buttons and check what would be sent
 
 Plan: {"tablets": [{"node": "/dev/input/by-id/...", "label": "...",
         "actions": {"button1": "right", "button2": "middle", "eraser": "left"}}]}
@@ -20,106 +22,222 @@ Excalidraw, Krita, GIMP, Inkscape and most other drawing apps, without the
 primary-selection paste a middle click causes in browsers).
 Only standard library; nothing to install.
 """
-import fcntl, json, os, select, struct, sys, time, ctypes
+import array, ctypes, json, os, select, socket, struct, subprocess, sys, time
 
-EV_SYN, EV_KEY, EV_REL, EV_ABS = 0x00, 0x01, 0x02, 0x03
+EV_SYN, EV_KEY, EV_ABS = 0x00, 0x01, 0x03
 SYN_REPORT = 0
-REL_X, REL_Y = 0x00, 0x01
 BTN_LEFT, BTN_RIGHT, BTN_MIDDLE = 0x110, 0x111, 0x112
-KEY_ESC, KEY_D, KEY_SPACE = 0x01, 0x20, 0x39
 BTN_TOOL_PEN, BTN_TOOL_RUBBER, BTN_TOUCH, BTN_STYLUS, BTN_STYLUS2, BTN_STYLUS3 = 0x140, 0x141, 0x14a, 0x14b, 0x14c, 0x149
-INPUT_PROP_POINTER = 0x00
-
-UI_SET_EVBIT, UI_SET_KEYBIT, UI_SET_RELBIT, UI_SET_ABSBIT, UI_SET_PROPBIT = 0x40045564, 0x40045565, 0x40045566, 0x40045567, 0x4004556e
-UI_ABS_SETUP = 0x401c5504  # _IOW(UINPUT_IOCTL_BASE, 4, struct uinput_abs_setup)
-UI_DEV_CREATE, UI_DEV_DESTROY = 0x5501, 0x5502
-UI_DEV_SETUP = 0x405c5503  # _IOW(UINPUT_IOCTL_BASE, 3, struct uinput_setup)
+KEY_SPACE = 0x39
 
 # action name -> (device, evdev code)
-ACTIONS = {"left": ("mouse", BTN_LEFT), "right": ("mouse", BTN_RIGHT), "middle": ("mouse", BTN_MIDDLE), "space": ("keys", KEY_SPACE)}
+ACTIONS = {"left": ("pointer", BTN_LEFT), "right": ("pointer", BTN_RIGHT), "middle": ("pointer", BTN_MIDDLE), "space": ("keyboard", KEY_SPACE)}
 EVENT = struct.Struct("llHHi")
+NAMES = {BTN_LEFT: "left", BTN_RIGHT: "right", BTN_MIDDLE: "middle", KEY_SPACE: "space"}
 
 
-MOUSE_NAME = "Drawing Tablet for Omarchy pen buttons"
+# --- Wayland: just enough of the wire protocol for two virtual devices ------
+
+# A keymap with the one key the keyboard sends. The compositor compiles it
+# with xkbcommon and hands it to the focused app while this keyboard is in
+# use; the app sees evdev code 57 as XKB keycode 65, "space".
+KEYMAP = """xkb_keymap {
+xkb_keycodes { minimum = 8; maximum = 255; <K57> = 65; };
+xkb_types { type "ONE_LEVEL" { modifiers = none; level_name[Level1] = "Any"; }; };
+xkb_compatibility { };
+xkb_symbols { key <K57> { [ space ] }; };
+};
+"""
+
+WL_DISPLAY, WL_REGISTRY, SYNC_CALLBACK, WL_SEAT, POINTER_MANAGER, KEYBOARD_MANAGER, POINTER, KEYBOARD = 1, 2, 3, 4, 5, 6, 7, 8
 
 
-def open_uinput(name=MOUSE_NAME):
-    fd = os.open("/dev/uinput", os.O_WRONLY | os.O_NONBLOCK)
-    fcntl.ioctl(fd, UI_SET_EVBIT, EV_KEY)
-    fcntl.ioctl(fd, UI_SET_EVBIT, EV_REL)
-    fcntl.ioctl(fd, UI_SET_EVBIT, EV_SYN)
-    for code in (BTN_LEFT, BTN_RIGHT, BTN_MIDDLE):
-        fcntl.ioctl(fd, UI_SET_KEYBIT, code)
-    # A pointer needs relative axes to be classified as a mouse by udev and
-    # libinput, even though this device never moves.
-    fcntl.ioctl(fd, UI_SET_RELBIT, REL_X)
-    fcntl.ioctl(fd, UI_SET_RELBIT, REL_Y)
-    fcntl.ioctl(fd, UI_SET_PROPBIT, INPUT_PROP_POINTER)
-    # struct uinput_setup { struct input_id id; char name[80]; __u32 ff_effects_max; }
-    # struct input_id { __u16 bustype, vendor, product, version; }
-    setup = struct.pack("HHHH80sI", 0x06, 0x0a11, 0x0dd1, 1, name.encode()[:79].ljust(80, b"\0"), 0)
-    fcntl.ioctl(fd, UI_DEV_SETUP, setup)
-    fcntl.ioctl(fd, UI_DEV_CREATE)
-    return fd
+def wl_string(text):
+    data = text.encode() + b"\0"
+    return struct.pack("<I", len(data)) + data + b"\0" * (-len(data) % 4)
 
 
-def open_keyboard(name):
-    """A virtual keyboard for key actions, separate from the mouse so libinput
-    keeps seeing a plain mouse. It advertises the ESC..D block as well so
-    udev tags it a keyboard rather than a bare key device."""
-    fd = os.open("/dev/uinput", os.O_WRONLY | os.O_NONBLOCK)
-    fcntl.ioctl(fd, UI_SET_EVBIT, EV_KEY)
-    fcntl.ioctl(fd, UI_SET_EVBIT, EV_SYN)
-    for code in range(KEY_ESC, KEY_D + 1):
-        fcntl.ioctl(fd, UI_SET_KEYBIT, code)
-    fcntl.ioctl(fd, UI_SET_KEYBIT, KEY_SPACE)
-    setup = struct.pack("HHHH80sI", 0x06, 0x0a11, 0x0dd3, 1, name.encode()[:79].ljust(80, b"\0"), 0)
-    fcntl.ioctl(fd, UI_DEV_SETUP, setup)
-    fcntl.ioctl(fd, UI_DEV_CREATE)
-    return fd
+class Wayland:
+    """The compositor connection, a virtual pointer and, on request, a
+    virtual keyboard. Only registry events are ever read."""
 
+    def __init__(self):
+        runtime = os.environ.get("XDG_RUNTIME_DIR")
+        display = os.environ.get("WAYLAND_DISPLAY", "wayland-0")
+        if not runtime:
+            raise OSError("XDG_RUNTIME_DIR is not set; is this a Wayland session?")
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.connect(display if display.startswith("/") else os.path.join(runtime, display))
+        self.globals = {}
+        self.buffer = b""
+        self.keyboard_ready = False
+        self.send(WL_DISPLAY, 1, struct.pack("<I", WL_REGISTRY))  # get_registry
+        self.roundtrip()
+        for interface in ("wl_seat", "zwlr_virtual_pointer_manager_v1", "zwp_virtual_keyboard_manager_v1"):
+            if interface not in self.globals:
+                raise OSError(f"the compositor does not offer {interface}")
+        self.bind("wl_seat", WL_SEAT, 1)
+        self.bind("zwlr_virtual_pointer_manager_v1", POINTER_MANAGER, 1)
+        self.bind("zwp_virtual_keyboard_manager_v1", KEYBOARD_MANAGER, 1)
+        # zwlr_virtual_pointer_manager_v1.create_virtual_pointer(seat, id)
+        self.send(POINTER_MANAGER, 0, struct.pack("<II", WL_SEAT, POINTER))
+        self.roundtrip()
 
-class Outputs:
-    """The virtual devices the actions land on; the keyboard exists only when
-    a key action is configured."""
+    def send(self, obj, opcode, payload=b"", fds=()):
+        data = struct.pack("<II", obj, ((8 + len(payload)) << 16) | opcode) + payload
+        if fds:
+            self.sock.sendmsg([data], [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array("i", fds))])
+        else:
+            self.sock.sendall(data)
 
-    def __init__(self, mouse_name, keys_name, want_keys):
-        self.mouse = open_uinput(mouse_name)
-        self.keys = open_keyboard(keys_name) if want_keys else None
+    def bind(self, interface, new_id, version):
+        name, offered = self.globals[interface]
+        self.send(WL_REGISTRY, 0, struct.pack("<I", name) + wl_string(interface) + struct.pack("<II", min(version, offered), new_id))
 
-    def fd_for(self, device):
-        return self.keys if device == "keys" else self.mouse
+    def roundtrip(self):
+        self.send(WL_DISPLAY, 0, struct.pack("<I", SYNC_CALLBACK))  # sync
+        while True:
+            chunk = self.sock.recv(65536)
+            if not chunk:
+                raise OSError("the compositor closed the connection")
+            self.buffer += chunk
+            if self.drain():
+                return
+
+    def drain(self):
+        """Handle buffered events; True once the sync callback fired."""
+        done = False
+        while len(self.buffer) >= 8:
+            obj, sizeop = struct.unpack_from("<II", self.buffer)
+            size, opcode = sizeop >> 16, sizeop & 0xffff
+            if len(self.buffer) < size:
+                break
+            body = self.buffer[8:size]
+            self.buffer = self.buffer[size:]
+            if obj == WL_REGISTRY and opcode == 0:  # global(name, interface, version)
+                name, length = struct.unpack_from("<II", body)
+                interface = body[8:8 + length - 1].decode()
+                version = struct.unpack_from("<I", body, 8 + ((length + 3) & ~3))[0]
+                self.globals[interface] = (name, version)
+            elif obj == SYNC_CALLBACK and opcode == 0:
+                done = True
+            elif obj == WL_DISPLAY and opcode == 0:  # error(object, code, message)
+                _, _, length = struct.unpack_from("<III", body)
+                raise OSError("compositor error: " + body[12:12 + length - 1].decode(errors="replace"))
+        return done
+
+    def poll(self):
+        """Read whatever the compositor sent; raises when it goes away."""
+        try:
+            chunk = self.sock.recv(65536, socket.MSG_DONTWAIT)
+        except BlockingIOError:
+            return
+        if not chunk:
+            raise OSError("the compositor closed the connection")
+        self.buffer += chunk
+        self.drain()
+
+    def ensure_keyboard(self):
+        if self.keyboard_ready:
+            return
+        # zwp_virtual_keyboard_manager_v1.create_virtual_keyboard(seat, id)
+        self.send(KEYBOARD_MANAGER, 0, struct.pack("<II", WL_SEAT, KEYBOARD))
+        data = KEYMAP.encode() + b"\0"
+        fd = os.memfd_create("omarchy-drawing-tablet-keymap")
+        os.write(fd, data)
+        # zwp_virtual_keyboard_v1.keymap(format = XKB_V1, fd, size)
+        self.send(KEYBOARD, 0, struct.pack("<II", 1, len(data)), fds=(fd,))
+        os.close(fd)
+        self.roundtrip()
+        self.keyboard_ready = True
+
+    @staticmethod
+    def now():
+        return int(time.monotonic() * 1000) & 0xffffffff
+
+    def press(self, action, down):
+        device, code = action
+        state = 1 if down else 0
+        if device == "pointer":
+            if code == BTN_RIGHT and down and not cursor_over_a_window():
+                # Qt 6.11 crashes the Omarchy shell when a right click reaches
+                # one of its surfaces (wallpaper, bar, panels); see README.
+                print("right click skipped: the pen is not over an application window", file=sys.stderr)
+                return
+            # zwlr_virtual_pointer_v1.button(time, button, state) then frame()
+            self.send(POINTER, 2, struct.pack("<III", self.now(), code, state))
+            self.send(POINTER, 4)
+        else:
+            self.ensure_keyboard()
+            # zwp_virtual_keyboard_v1.key(time, key, state)
+            self.send(KEYBOARD, 1, struct.pack("<III", self.now(), code, state))
 
     def close(self):
-        for fd in (self.mouse, self.keys):
-            if fd is not None:
-                fcntl.ioctl(fd, UI_DEV_DESTROY)
-                os.close(fd)
+        self.sock.close()
 
 
-def emit(fd, typ, code, value):
-    now = time.time()
-    sec, usec = int(now), int((now - int(now)) * 1_000_000)
-    os.write(fd, EVENT.pack(sec, usec, typ, code, value))
+class Recorder:
+    """Stands in for the compositor in the self-test."""
+
+    def __init__(self):
+        self.sent = []
+
+    def press(self, action, down):
+        self.sent.append((action[1], 1 if down else 0))
+
+    def poll(self):
+        pass
+
+    def close(self):
+        pass
 
 
-def click(outputs, action, down):
-    device, code = action
-    fd = outputs.fd_for(device)
-    emit(fd, EV_KEY, code, 1 if down else 0)
-    emit(fd, EV_SYN, SYN_REPORT, 0)
+# --- The tablet side ---------------------------------------------------------
+
+def hyprctl(*args):
+    try:
+        out = subprocess.run(["hyprctl", "-j", *args], capture_output=True, text=True, timeout=1)
+        return json.loads(out.stdout)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+
+
+def inside(point, window):
+    x, y = point
+    (wx, wy), (ww, wh) = window.get("at", (0, 0)), window.get("size", (0, 0))
+    return wx <= x < wx + ww and wy <= y < wy + wh
+
+
+def cursor_over_a_window():
+    """Whether the pointer is over an application window rather than a shell
+    surface. Only mapped windows on the workspace shown on their monitor
+    count; anything else under the pointer is a layer (wallpaper, bar, a
+    panel) or nothing."""
+    cursor = hyprctl("cursorpos")
+    clients = hyprctl("clients")
+    monitors = hyprctl("monitors")
+    if not isinstance(cursor, dict) or not isinstance(clients, list) or not isinstance(monitors, list):
+        return True  # cannot tell: do not swallow the click
+    point = (cursor.get("x", 0), cursor.get("y", 0))
+    shown = {m.get("id"): (m.get("activeWorkspace") or {}).get("id") for m in monitors}
+    for window in clients:
+        if not window.get("mapped") or window.get("hidden"):
+            continue
+        if shown.get(window.get("monitor")) != (window.get("workspace") or {}).get("id"):
+            continue
+        if inside(point, window):
+            return True
+    return False
 
 
 def check():
     try:
-        fd = open_uinput()
+        wayland = Wayland()
     except OSError as error:
-        print(f"uinput unavailable: {error}", file=sys.stderr)
+        print(f"virtual input unavailable: {error}", file=sys.stderr)
         return 2
-    time.sleep(0.2)
-    fcntl.ioctl(fd, UI_DEV_DESTROY)
-    os.close(fd)
-    print("uinput ok")
+    wayland.close()
+    print("virtual input ok")
     return 0
 
 
@@ -138,21 +256,9 @@ class Tablet:
     def wanted(self):
         return any((self.button1, self.button2, self.eraser))
 
-    def wants_keys(self):
-        return any(action and action[0] == "keys" for action in (self.button1, self.button2, self.eraser))
-
     def open(self):
-        # A node that has just appeared belongs to root until udev has run
-        # its rules; give it a moment rather than failing on the first try.
         if self.fd is None:
-            for attempt in range(30):
-                try:
-                    self.fd = os.open(self.node, os.O_RDONLY | os.O_NONBLOCK)
-                    break
-                except PermissionError:
-                    if attempt == 29:
-                        raise
-                    time.sleep(0.1)
+            self.fd = open_readable(self.node)
         return self.fd
 
     def close(self):
@@ -160,43 +266,55 @@ class Tablet:
             os.close(self.fd)
             self.fd = None
 
-    def handle(self, ui, code, value):
-        # A press maps to a mouse button; the release always goes to whatever
+    def handle(self, out, code, value):
+        # A press maps to an action; the release always goes to whatever
         # was pressed, so a plan change mid-press cannot leave a button stuck.
         if code == BTN_TOOL_RUBBER:
             self.eraser_near = value == 1
             if not self.eraser_near:
-                self.release(ui, "eraser")
+                self.release(out, "eraser")
             return
         if code == BTN_STYLUS:
-            self.press_or_release(ui, "button1", self.button1, value)
+            self.press_or_release(out, "button1", self.button1, value)
         elif code == BTN_STYLUS2:
-            self.press_or_release(ui, "button2", self.button2, value)
+            self.press_or_release(out, "button2", self.button2, value)
         elif code == BTN_TOUCH and self.eraser_near:
-            self.press_or_release(ui, "eraser", self.eraser, value)
+            self.press_or_release(out, "eraser", self.eraser, value)
 
-    def press_or_release(self, ui, key, button, value):
+    def press_or_release(self, out, key, action, value):
         if value == 1:
-            if button is None or key in self.pressed:
+            if action is None or key in self.pressed:
                 return
-            self.pressed[key] = button
-            click(ui, button, True)
+            self.pressed[key] = action
+            out.press(action, True)
         else:
-            self.release(ui, key)
+            self.release(out, key)
 
-    def release(self, ui, key):
-        button = self.pressed.pop(key, None)
-        if button is not None:
-            click(ui, button, False)
+    def release(self, out, key):
+        action = self.pressed.pop(key, None)
+        if action is not None:
+            out.press(action, False)
 
-    def release_all(self, ui):
+    def release_all(self, out):
         for key in list(self.pressed):
-            self.release(ui, key)
+            self.release(out, key)
+
+
+def open_readable(node, tries=30):
+    """Open a node that udev may not have handed to the user yet: a node that
+    has just appeared belongs to root until udev has run its rules."""
+    for attempt in range(tries):
+        try:
+            return os.open(node, os.O_RDONLY | os.O_NONBLOCK)
+        except PermissionError:
+            if attempt == tries - 1:
+                raise
+            time.sleep(0.1)
 
 
 def die_with_parent():
     """Exit when the shell that started us goes away, so a restart never
-    leaves a second virtual mouse behind."""
+    leaves a second helper behind."""
     try:
         libc = ctypes.CDLL("libc.so.6", use_errno=True)
         libc.prctl(1, 15)  # PR_SET_PDEATHSIG, SIGTERM
@@ -204,17 +322,9 @@ def die_with_parent():
         pass
 
 
-def run(plan):
-    die_with_parent()
-    tablets = [Tablet(spec) for spec in plan.get("tablets", [])]
-    tablets = [t for t in tablets if t.wanted() and t.node]
-    if not tablets:
-        print("nothing to do: no pen button actions configured", file=sys.stderr)
-        return 0
-    # The self-test names its devices differently so it never finds the copies
-    # the background service is already running.
-    mouse_name = str(plan.get("mouseName") or MOUSE_NAME)
-    ui = Outputs(mouse_name, mouse_name + " keys", any(t.wants_keys() for t in tablets))
+def pump(tablets, out, stop=None):
+    """Read the tablets and drive `out` until they are all gone, `stop()`
+    says so, or the compositor disappears."""
     by_fd = {}
     for tablet in tablets:
         try:
@@ -225,38 +335,62 @@ def run(plan):
     if not by_fd:
         return 1
     try:
-        while by_fd:
-            ready, _, _ = select.select(list(by_fd), [], [], 1.0)
+        while by_fd and not (stop and stop()):
+            ready, _, _ = select.select(list(by_fd), [], [], 0.5)
+            out.poll()
             for fd in ready:
                 tablet = by_fd[fd]
                 try:
                     data = os.read(fd, EVENT.size * 64)
                 except OSError:
                     # Unplugged: the service restarts us when the tablet is back.
-                    tablet.release_all(ui)
+                    tablet.release_all(out)
                     tablet.close()
                     del by_fd[fd]
                     continue
                 for offset in range(0, len(data) - EVENT.size + 1, EVENT.size):
                     _, _, typ, code, value = EVENT.unpack_from(data, offset)
                     if typ == EV_KEY:
-                        tablet.handle(ui, code, value)
+                        tablet.handle(out, code, value)
     finally:
         for tablet in by_fd.values():
-            tablet.release_all(ui)
-        ui.close()
+            tablet.release_all(out)
+            tablet.close()
     return 0
 
 
-def open_readable(node, tries=30):
-    """Open a node that udev may not have handed to the user yet."""
-    for attempt in range(tries):
-        try:
-            return os.open(node, os.O_RDONLY | os.O_NONBLOCK)
-        except PermissionError:
-            if attempt == tries - 1:
-                raise
-            time.sleep(0.1)
+def run(plan):
+    die_with_parent()
+    tablets = [Tablet(spec) for spec in plan.get("tablets", [])]
+    tablets = [t for t in tablets if t.wanted() and t.node]
+    if not tablets:
+        print("nothing to do: no pen button actions configured", file=sys.stderr)
+        return 0
+    try:
+        out = Wayland()
+    except OSError as error:
+        print(f"virtual input unavailable: {error}", file=sys.stderr)
+        return 2
+    try:
+        return pump(tablets, out)
+    except OSError as error:
+        print(f"stopping: {error}", file=sys.stderr)
+        return 2
+    finally:
+        out.close()
+
+
+# --- Self-test: a fake pen made with uinput, outputs recorded ---------------
+
+UI_SET_EVBIT, UI_SET_KEYBIT, UI_SET_ABSBIT = 0x40045564, 0x40045565, 0x40045567
+UI_ABS_SETUP = 0x401c5504  # _IOW(UINPUT_IOCTL_BASE, 4, struct uinput_abs_setup)
+UI_DEV_CREATE, UI_DEV_DESTROY = 0x5501, 0x5502
+UI_DEV_SETUP = 0x405c5503  # _IOW(UINPUT_IOCTL_BASE, 3, struct uinput_setup)
+
+
+def emit(fd, typ, code, value):
+    now = time.time()
+    os.write(fd, EVENT.pack(int(now), int((now - int(now)) * 1_000_000), typ, code, value))
 
 
 def node_named(name, tries=50):
@@ -275,7 +409,9 @@ def node_named(name, tries=50):
 
 
 def fake_tablet():
-    """A uinput pen tablet with the same buttons a real one reports."""
+    """A uinput pen tablet with the same buttons a real one reports. Only the
+    self-test needs uinput; the helper itself never touches it."""
+    import fcntl
     fd = os.open("/dev/uinput", os.O_WRONLY | os.O_NONBLOCK)
     for ev in (EV_KEY, EV_ABS, EV_SYN):
         fcntl.ioctl(fd, UI_SET_EVBIT, ev)
@@ -292,68 +428,45 @@ def fake_tablet():
 
 
 def self_test():
-    import subprocess
+    import fcntl, threading
     try:
         tablet_fd, tablet_name = fake_tablet()
     except OSError as error:
-        print(f"self-test: uinput unavailable: {error}", file=sys.stderr)
+        print(f"self-test: uinput unavailable for the fake pen: {error}", file=sys.stderr)
         return 2
     try:
-        tablet_node = node_named(tablet_name)
-        if not tablet_node:
+        node = node_named(tablet_name)
+        if not node:
             print("self-test: fake tablet never appeared", file=sys.stderr)
             return 1
-        mouse_name = "Drawing Tablet for Omarchy self-test mouse"
-        plan = {"mouseName": mouse_name, "tablets": [{"node": tablet_node, "label": "self-test", "actions": {"button1": "right", "button2": "space", "eraser": "left"}}]}
-        helper = subprocess.Popen([sys.executable, os.path.abspath(__file__), json.dumps(plan)], stderr=subprocess.PIPE, text=True)
-        try:
-            mouse_node = node_named(mouse_name)
-            keys_node = node_named(mouse_name + " keys")
-            if not mouse_node or not keys_node:
-                print("self-test: virtual mouse or keyboard never appeared", file=sys.stderr)
-                return 1
-            mouse = open_readable(mouse_node)
-            keys = open_readable(keys_node)
-            time.sleep(0.3)
+        tablet = Tablet({"node": node, "label": "self-test", "actions": {"button1": "right", "button2": "space", "eraser": "left"}})
+        out = Recorder()
+        finished = threading.Event()
+        worker = threading.Thread(target=pump, args=([tablet], out, finished.is_set), daemon=True)
+        worker.start()
+        time.sleep(0.5)
 
-            def press(code, value):
-                emit(tablet_fd, EV_KEY, code, value)
-                emit(tablet_fd, EV_SYN, SYN_REPORT, 0)
+        def press(code, value):
+            emit(tablet_fd, EV_KEY, code, value)
+            emit(tablet_fd, EV_SYN, SYN_REPORT, 0)
+            time.sleep(0.05)
 
-            # Pen comes near, button 1 press/release, button 2 press/release,
-            # then the eraser end touches and lifts.
-            script = [(BTN_TOOL_PEN, 1), (BTN_STYLUS, 1), (BTN_STYLUS, 0), (BTN_STYLUS2, 1), (BTN_STYLUS2, 0),
-                      (BTN_TOOL_PEN, 0), (BTN_TOOL_RUBBER, 1), (BTN_TOUCH, 1), (BTN_TOUCH, 0), (BTN_TOOL_RUBBER, 0)]
-            for code, value in script:
-                press(code, value)
-                time.sleep(0.05)
-            expected = [(BTN_RIGHT, 1), (BTN_RIGHT, 0), (KEY_SPACE, 1), (KEY_SPACE, 0), (BTN_LEFT, 1), (BTN_LEFT, 0)]
-            got = []
-            deadline = time.time() + 3
-            while time.time() < deadline and len(got) < len(expected):
-                ready, _, _ = select.select([mouse, keys], [], [], 0.2)
-                for fd in ready:
-                    data = os.read(fd, EVENT.size * 64)
-                    for offset in range(0, len(data) - EVENT.size + 1, EVENT.size):
-                        sec, usec, typ, code, value = EVENT.unpack_from(data, offset)
-                        if typ == EV_KEY:
-                            got.append((sec, usec, code, value))
-            os.close(mouse)
-            os.close(keys)
-            # Two devices, one timeline: order by the event clock.
-            got = [(code, value) for _, _, code, value in sorted(got)]
-            if got != expected:
-                names = {BTN_LEFT: "left", BTN_RIGHT: "right", BTN_MIDDLE: "middle", KEY_SPACE: "space"}
-                print(f"self-test FAILED: expected {[(names[c], v) for c, v in expected]}, got {[(names.get(c, hex(c)), v) for c, v in got]}", file=sys.stderr)
-                return 1
-            print("self-test ok: button 1 -> right click, button 2 -> hold Space, eraser -> left click")
-            return 0
-        finally:
-            helper.terminate()
-            try:
-                helper.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                helper.kill()
+        # Pen comes near, button 1 press/release, button 2 press/release,
+        # then the eraser end touches and lifts.
+        for code, value in [(BTN_TOOL_PEN, 1), (BTN_STYLUS, 1), (BTN_STYLUS, 0), (BTN_STYLUS2, 1), (BTN_STYLUS2, 0),
+                            (BTN_TOOL_PEN, 0), (BTN_TOOL_RUBBER, 1), (BTN_TOUCH, 1), (BTN_TOUCH, 0), (BTN_TOOL_RUBBER, 0)]:
+            press(code, value)
+        expected = [(BTN_RIGHT, 1), (BTN_RIGHT, 0), (KEY_SPACE, 1), (KEY_SPACE, 0), (BTN_LEFT, 1), (BTN_LEFT, 0)]
+        deadline = time.time() + 3
+        while time.time() < deadline and len(out.sent) < len(expected):
+            time.sleep(0.05)
+        finished.set()
+        worker.join(2)
+        if out.sent != expected:
+            print(f"self-test FAILED: expected {[(NAMES[c], v) for c, v in expected]}, got {[(NAMES.get(c, hex(c)), v) for c, v in out.sent]}", file=sys.stderr)
+            return 1
+        print("self-test ok: button 1 -> right click, button 2 -> hold Space, eraser -> left click")
+        return 0
     finally:
         fcntl.ioctl(tablet_fd, UI_DEV_DESTROY)
         os.close(tablet_fd)

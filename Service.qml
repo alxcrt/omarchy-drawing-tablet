@@ -60,11 +60,6 @@ Item {
 
   function startHelper() {
     if (root.helperPlan === "" || helper.running) return
-    if (!engine.uinput) {
-      root.helperError = "Virtual input is not available: /dev/uinput is not open to this user."
-      console.warn("omarchy-drawing-tablet: " + root.helperError)
-      return
-    }
     root.helperError = ""
     helper.command = Model.penButtonsCommand(engine.pluginDir, JSON.parse(root.helperPlan))
     helper.running = true

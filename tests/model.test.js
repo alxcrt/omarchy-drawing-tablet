@@ -38,8 +38,6 @@ const PROBE = [
   "ID_MODEL_ID=037b",
   "ID_SERIAL_SHORT=9JE00M1015644",
   "ID_VENDOR_ID=056a",
-  "== uinput",
-  "writable",
   "== libwacomdb",
   "/usr/share/libwacom/wacom-one-by-wacom-m-p2.tablet:ModelName=CTL-672",
   "/usr/share/libwacom/wacom-one-by-wacom-m-p2.tablet:DeviceMatch=usb|056a|037b",
@@ -487,7 +485,6 @@ test("every Text in the QML renders plain text so device names cannot inject mar
 
 test("pen buttons become a plan for the helper only when something is mapped and the tablet is present", () => {
   const probe = Model.parseProbe(PROBE)
-  assert.equal(probe.uinput, true)
   const document = Model.upsertProfile(Model.parseDocument(""), profileFor())
   assert.deepEqual(Model.penButtonPlan(document, probe.tablets), { tablets: [] })
   assert.equal(Model.penButtonSummary(document.tablets[0]), "apps decide")
@@ -505,10 +502,6 @@ test("pen buttons become a plan for the helper only when something is mapped and
   assert.equal(command[0], "python3")
   assert.equal(command[1], "/home/me/.config/omarchy/plugins/x/tools/pen-buttons.py")
   assert.deepEqual(JSON.parse(command[2]), plan)
-  const setup = Model.uinputRuleCommand()
-  assert.deepEqual(setup.slice(0, 6), ["omarchy", "launch", "floating", "terminal", "with", "presentation"])
-  assert.match(setup[6], /TAG\+="uaccess"/)
-  assert.match(setup[6], /udevadm trigger --name-match=uinput/)
 })
 
 test("the helper script parses, self-describes, and rejects a bad plan", () => {
@@ -524,13 +517,25 @@ test("the helper script parses, self-describes, and rejects a bad plan", () => {
   assert.match(empty.stderr, /nothing to do/)
 })
 
-test("the helper turns pen buttons into the mapped clicks end to end (needs /dev/uinput)", (t) => {
+test("the helper reaches the compositor's virtual input when run inside a Hyprland session", (t) => {
+  if (!process.env.WAYLAND_DISPLAY) {
+    t.skip("no Wayland session here")
+    return
+  }
   const helper = path.join(__dirname, "..", "tools", "pen-buttons.py")
   const check = childProcessSync(["python3", helper, "--check"])
-  if (check.status !== 0) {
+  assert.equal(check.status, 0, check.stderr)
+  assert.match(check.stdout, /virtual input ok/)
+})
+
+test("the helper turns a fake pen's buttons into the mapped actions end to end (needs /dev/uinput for the fake pen)", (t) => {
+  try {
+    fs.accessSync("/dev/uinput", fs.constants.W_OK)
+  } catch (e) {
     t.skip("/dev/uinput is not open to this user here")
     return
   }
+  const helper = path.join(__dirname, "..", "tools", "pen-buttons.py")
   const result = childProcessSync(["python3", helper, "--self-test"])
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stdout, /self-test ok/)

@@ -62,3 +62,11 @@ while the tip is down, so a synthetic left click could press but never drag.
 ## Middle click pastes in browsers
 
 A middle click from the virtual mouse behaves like any middle click on Linux: Chromium and Firefox paste the primary selection on release, so in Excalidraw a pan with a pen button mapped to middle click ends with a paste. The "Hold Space" action (a second uinput device, a keyboard advertising ESC..D plus Space so udev tags it `ID_INPUT_KEYBOARD`) gives the pan gesture of Excalidraw, Krita, GIMP and Inkscape without that.
+
+## Wayland virtual input instead of uinput (2026-08-29, v1.2.0)
+
+Hyprland offers `zwlr_virtual_pointer_manager_v1` (v2) and `zwp_virtual_keyboard_manager_v1` (v1) to every client, so the helper now speaks the Wayland wire protocol directly (standard library only: unix socket, `wl_registry.bind`, `create_virtual_pointer(seat)`, `button` + `frame`; `create_virtual_keyboard(seat)`, `keymap` over SCM_RIGHTS with a one-key xkb keymap, then `key`). The uinput path, its udev `uaccess` rule and the sudo prompt are gone; the marketplace's security baseline flagged that `sudo` as a `privilege` capability needing manual review. Only the self-test still uses `/dev/uinput`, for the fake pen on the input side, and skips when it is unavailable.
+
+## Right clicks crash the shell on Qt 6.11 (2026-08-29)
+
+Quickshell 0.3.1 on Qt 6.11.2 segfaults in `QQuickDeliveryAgentPrivate::contextMenuTargets` → `QQuickItem::mapToScene` whenever a right click (a `QContextMenuEvent`) reaches one of its windows: the `omarchy-background` wallpaper layer, the bar, any panel. Fourteen crashes in one afternoon, all from a pen button mapped to right click while the pen hovered over the desktop, plus the end-to-end test clicking there. `omarchy-shell` restarts Quickshell after each. The helper now asks `hyprctl -j cursorpos/clients/monitors` before a right click and sends it only when the pointer is inside a mapped window on the workspace its monitor shows. Left and middle clicks do not raise context-menu events and are unaffected. Upstream: https://github.com/quickshell-mirror/quickshell/issues/900 (open).

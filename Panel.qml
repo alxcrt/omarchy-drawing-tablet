@@ -226,14 +226,6 @@ Panel {
     root.editProfile({ buttons: buttons })
   }
 
-  function allowVirtualInput() {
-    root.lastError = ""
-    uinputSetupProcess.command = Model.uinputRuleCommand()
-    uinputSetupProcess.startDetached()
-  }
-
-  Process { id: uinputSetupProcess }
-
   function nudgeRegion(dx, dy, dw, dh) {
     if (!root.profile || !root.customRegion) return
     root.setRegion(Model.nudgeRegion(root.profile, dx, dy, dw, dh))
@@ -1299,28 +1291,6 @@ Panel {
                     }
                   }
 
-                  Text {
-                    textFormat: Text.PlainText
-                    visible: root.penButtonsMapped && engine.probed && !engine.uinput
-                    width: parent.width
-                    text: "Virtual input is not available on this machine (/dev/uinput is not open to your user), so these mappings cannot act yet. Allow it once below; it asks for your password."
-                    color: root.urgent
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.caption
-                    wrapMode: Text.WordWrap
-                  }
-
-                  Button {
-                    visible: root.penButtonsMapped && engine.probed && !engine.uinput
-                    text: "Allow virtual input"
-                    iconText: "󰌆"
-                    bordered: true
-                    selected: true
-                    foreground: root.foreground
-                    fontFamily: root.fontFamily
-                    fontSize: Style.font.caption
-                    onClicked: root.allowVirtualInput()
-                  }
                 }
               }
 
